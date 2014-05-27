@@ -70,6 +70,25 @@ class PidLockFile(object):
             else:
                 return
 
+    def break_lock(self):
+        """
+        Remove the file, thus breaking the lock.
+        """
+        try:
+            os.unlink(self.path)
+        except OSError:
+            exc = sys.exc_info()[1]
+            if exc.errno == errno.EEXIST:
+                return
+            raise LockError("Unable to break lock: %d: %s" % (exc.errno, exc.message))
+        except Exception:
+            raise LockError("Unable to break lock: %s" % (exc.message, ))
+
+    def is_stale(self):
+        """
+        Return True if the pid file contains a PID, and no such process exists.
+        """
+
     def seal(self):
         """
         Write our PID to the file lock, and close the file.
