@@ -1,4 +1,36 @@
 # -*- coding: utf-8 -*-
+"""
+=========
+Copyright
+=========
+
+    - Copyright 2014 Ethan Furman -- All rights reserved.
+    - Author: Ethan Furman
+    - Contact: ethan@stoneleaf.us
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+    - Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+    - Redistributions in binary form must reproduce the above copyright
+      notice, this list of conditions and the following disclaimer in the
+      documentation and/or other materials provided with the distribution.
+    - The names of contributors may not be used to endorse or promote
+      products derived from this software without specific prior written
+      permission.
+
+THIS SOFTWARE IS PROVIDED ''AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES,
+INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+ITS CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+"""
+
 
 import atexit
 import errno
@@ -9,22 +41,30 @@ import socket
 import sys
 import time
 
+version = 0.1
+
 STDIN = 0
 STDOUT = 1
 STDERR = 2
 
 INIT_PID = 1
 
-signal_map = dict([
-    (getattr(signal, name), target) for (name, target) in (
-        ('SIGTERM', 'sig_terminate'),
-        ('SIGTSTP', None),
-        ('SIGTTIN', None),
-        ('SIGTTOU', None),
-        ) if hasattr(signal, name)
-    ])
+signal_map = dict(
+    SIGTERM = 'sig_terminate',
+    SIGTSTP = None,
+    SIGTTIN = None,
+    SIGTTOU = None,
+    )
 
 _verbose = False
+
+try:
+    basestring
+    baseint = int, long
+except NameError:
+    basestring = str
+    baseint = int
+
 
 class Daemon(object):
     """
@@ -33,8 +73,9 @@ class Daemon(object):
 
     def __init__(self,
             target=None,                # function to run as daemon
-            args=(),                    # args and kwargs for function
-            kwargs={},
+            args=None,                  # args and kwargs for function
+            kwargs=None,
+            chroot=None,                # attempt to jail the daemon
             working_directory='/',      # directory to change to
             umask=0,                    # don't mask anything for file creation
             prevent_core=True,          # don't write core files
@@ -51,14 +92,18 @@ class Daemon(object):
         if prevent_core:
             prevent_core_dump()
         self.target = target
+        if args is None:
+            args = tuple()
         self.args = args
+        if kwargs is None:
+            kwargs = dict()
         self.kwargs = kwargs
+        self.chroot = chroot
         self.working_directory = working_directory
         self.umask = umask
-        self.process_ids = process_ids
-        if pid_file is not None:
-            if isinstance(pid_file, basestring):
-                pid_file = PidLockFile(pid_file)
+        if process_ids is None:
+            process_ids = os.getuid(), os.getgid()
+        self.uid, self.gid = process_ids
         self.pid_file = pid_file
         self.inherit_files = inherit_files
         self.signal_map = signal_map
@@ -73,12 +118,12 @@ class Daemon(object):
         """
         Enter context manager, returning self.
         """
-        self.start(_two_stage=True)
+        self.start(run=False)
         return self
 
     def __exit__(self, *args):
         if args == (None, None, None):
-            self._finish()
+            self.finish_start()
 
     def __detach(self):
         """
@@ -103,12 +148,14 @@ class Daemon(object):
         if pid > 0:
             os._exit(os.EX_OK)
 
-    def _finish(self):
+    def finish_start(self):
         """
         Primarily used by context manager, but can be called manually on
         ealier Pythons.
         """
         self._two_stage = False
+        if _verbose:
+            print('finish_start: keeping ', repr(self.inherit_files))
         close_open_files(exclude=self.inherit_files)
         if self._redirect:
             redirect(self.stdin, STDIN)
@@ -121,16 +168,12 @@ class Daemon(object):
         """
         Parent reads from_daemon until empty string returned, then quits.
         """
-        feedback = []
+        feedback = ''
         try:
             while True:
                 data = os.read(from_daemon, 1024)
                 if data:
-                    feedback.append(data)
-                    #print(''.join(feedback), sep='', end='')
-                    #sys.stdout.flush()
-                    #if feedback[-1][-1] == '\n':
-                    #    break
+                    feedback += data.decode('utf-8')
                 else:
                     break
         finally:
@@ -159,6 +202,8 @@ class Daemon(object):
         self.set_signals()
         handler_map = {}
         for sig, func in self.signal_map.items():
+            if not isinstance(sig, baseint):
+                raise ValueError("%r is not a valid signal" % sig)
             if func is None:
                 func = signal.SIG_IGN
             elif isinstance(func, basestring):
@@ -171,14 +216,18 @@ class Daemon(object):
         Either override this method, or give a signal_map to __init__, for fine
         tuning which signals are handled.
         """
-        sm = signal_map.copy()
+        sm = dict([
+            (getattr(signal, name), handler)
+            for name, handler in signal_map.items()
+            if hasattr(signal, name)
+            ])
         sm.update(self.signal_map or {})
         self.signal_map = sm
 
     def sig_terminate(self, signal, stack_frame):
         raise SystemExit("Terminated by signal %s" % signal)
 
-    def start(self, _two_stage=False):
+    def start(self, run=True):
         """
         Enter daemon mode and call target (if it exists).
 
@@ -212,15 +261,36 @@ class Daemon(object):
             self._redirect = True
         if self.prevent_core:
             prevent_core_dump()
+        if self.chroot is not None:
+            os.chroot(self.chroot)
+        if self.gid is not None:
+            os.setgid(self.gid)
+        if self.uid is not None:
+            os.setuid(self.uid)
         os.umask(self.umask)
-        if self.working_directory:
-            os.chdir(self.working_directory)
+        if not self.working_directory:
+            raise ValueError(
+                    'working_directory must be a valid path (received %r)' %
+                    self.working_directory
+                    )
+        os.chdir(self.working_directory)
+        if _verbose:
+            print('self.pid_file: %r' % self.pid_file)
         if self.pid_file is not None:
-            pid = self.pid_file.acquire()
+            if _verbose:
+                print('locking pid file')
+            pid_file = self.pid_file
+            if isinstance(pid_file, basestring):
+                self.pid_file = pid_file = PidLockFile(pid_file)
+            pid = pid_file.acquire()
             print('pid: %s' % pid)
         self.__set_signals()
-        if not _two_stage:
-            self._finish()
+        if run:
+            if _verbose:
+                print('start calling run')
+            self.finish_start()
+        if _verbose:
+            print('start not calling run')
         self._two_stage = True
 
 
@@ -282,7 +352,6 @@ class PidLockFile(object):
                 self.file_obj = os.fdopen(fd, 'w')
             except OSError:
                 exc = sys.exc_info()[1]
-                print(str(exc))
                 if exc.errno != errno.EEXIST:
                     raise LockFailed("Unable to create %r" % self.file_name)
                 elif time_out < 0:
@@ -358,6 +427,41 @@ class PidLockFile(object):
         self.file_obj.close()
         self.file_obj = None
         return pid
+
+
+class FileTracker(object):
+    builtin_open = open
+    _cache = {}
+    _active = False
+    @classmethod
+    def __call__(cls, name, *args, **kwds):
+        file = cls.builtin_open(name, *args, **kwds)
+        cls._cache[name] = file
+        return file
+    @classmethod
+    def active(cls, name):
+        cls.open_files()
+        try:
+            return cls._cache[name]
+        except KeyError:
+            raise ValueError('%s has been closed' % name)
+    @classmethod
+    def open_files(cls):
+        closed = []
+        for name, file in cls._cache.items():
+            if file.closed:
+                closed.append(name)
+        for name in closed:
+            cls._cache.pop(name)
+        return cls._cache.items()
+    @classmethod
+    def install(cls):
+        if cls._active is not True:
+            cls._active = True
+            if isinstance(__builtins__, dict):
+                __builtins__['open'] = cls()
+            else:
+                __builtins__.open = cls()
 
 
 def close_open_files(exclude):

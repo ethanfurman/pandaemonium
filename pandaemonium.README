@@ -1,0 +1,103 @@
+pandaemonium
+============
+
+n. the abode of all the daemons [1]_
+
+pandaemonium provides a framework for writing daemons in Python.  The API is
+based on the threading/multiprocessing models [2]_ [3]_, so the primary way
+of creating your own daemon is to either subclass and override the ``run``
+method, or provide a function as the ``target`` to the ``Daemon`` class.
+
+Besides ``Daemon`` there is also a locking pid file -- ``PidLockFile``.
+``PidLockFile`` can either be used manually, or, if a complete path and file
+name are provided to ``Daemon``, used automatically.
+
+
+usage
+=====
+
+Daemon
+------
+
+``Daemon(target=None, args=None, kwargs=None, working_directory='/', umask=0,
+         prevent_core=True, process_ids=None, inherit_files=None,
+         signal_map=None, stdin=None, stdout=None, stderr=None)``
+
+    target
+        function to call when daemonized
+
+    args
+        positional args to provide to target
+
+    kwargs
+        keyword args to provide to target
+
+    chroot
+        attempt to jail the daemon in this directory
+
+    working_directory
+        directory to change to (relative to chroot, if any)
+
+    umask
+        mask to use when creating files
+
+    prevent_core
+        prevent core dump files from being created
+
+    process_ids
+        tuple of (uid, gid) to switch process to (use (None, None) to disable)
+
+    inherit_files
+        open files or file descriptors to keep open
+
+    signal_map
+        dictionary of signal names or numbers to method names or functions
+
+    stdin / stdout / stderr
+        streams to map the standard streams to (default is ``os.devnull``)
+
+``Daemon.run()``
+
+    Method representing the daemon's activity.
+
+    You may override this method in a subclass.  The standard ``run``
+    method invokes the callable object passed to the object's constructor as
+    the target argument, if any, with sequential and keyword arguments taken
+    from the *args* and *kwargs* arguments, respectively.
+
+``Daemon.start(run=True)``
+
+    Start the daemon's activity.
+
+    This must be called at most once per daemon object.  It arranges for the
+    object's ``run`` method to be invoked as a daemon process.
+
+    If ``run`` is ``False`` then ``start`` enters daemon mode, but returns
+    just before closing open files and calling ``run``.  This is useful if one
+    needs to do additional setup in the daemon process.
+
+``Daemon.finish_start()``
+
+    Only call if ``Daemon.start()`` was called with ``run=False``.  Finishes
+    daemon setup and calls ``run``.
+
+``Daemon context manager``
+
+    Instead of calling ``start(run=False)``, doing additional set up, and then
+    calling ``finish_start()``, one can instead use ``Daemon`` as a context
+    manager::
+
+        daemon = Daemon()
+        with daemon:
+            # now in daemon mode, but open files have not been closed nor
+            # have the std streams been redirected to their final values
+            do_some_more_setup_as_daemon()
+        # upon exiting the context manager all non-inherited files are closed
+        # and the std streams redirected
+        # nothing here is ever executed
+    
+
+
+[1] http://dictionary.reference.com/browse/pandemonium
+[2] https://docs.python.org/2/library/threading.html#threading.Thread
+[3] https://docs.python.org/2/library/multiprocessing.html#multiprocessing.Process
