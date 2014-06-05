@@ -75,7 +75,6 @@ class Daemon(object):
             target=None,                # function to run as daemon
             args=None,                  # args and kwargs for function
             kwargs=None,
-            chroot=None,                # attempt to jail the daemon
             working_directory='/',      # directory to change to
             umask=0,                    # don't mask anything for file creation
             prevent_core=True,          # don't write core files
@@ -98,7 +97,6 @@ class Daemon(object):
         if kwargs is None:
             kwargs = dict()
         self.kwargs = kwargs
-        self.chroot = chroot
         self.working_directory = working_directory
         self.umask = umask
         if process_ids is None:
@@ -110,7 +108,7 @@ class Daemon(object):
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
-        self._two_stage = False
+        self._stage_completed = 0
         if _verbose:
             print('finished __init__')
 
@@ -147,22 +145,6 @@ class Daemon(object):
         pid = os.fork()
         if pid > 0:
             os._exit(os.EX_OK)
-
-    def finish_start(self):
-        """
-        Primarily used by context manager, but can be called manually on
-        ealier Pythons.
-        """
-        self._two_stage = False
-        if _verbose:
-            print('finish_start: keeping ', repr(self.inherit_files))
-        close_open_files(exclude=self.inherit_files)
-        if self._redirect:
-            redirect(self.stdin, STDIN)
-            redirect(self.stdout, STDOUT)
-            redirect(self.stderr, STDERR)
-        self.run()
-        raise SystemExit
 
     def _monitor(self, from_daemon):
         """
@@ -227,16 +209,26 @@ class Daemon(object):
     def sig_terminate(self, signal, stack_frame):
         raise SystemExit("Terminated by signal %s" % signal)
 
-    def start(self, run=True):
+    def start(self, last=9):
         """
         Enter daemon mode and call target (if it exists).
 
-        If _two_stage is True then the files are not closed and target (if any)
-        is not called.
+        Complete any remaining stages and run target (if it exists).
         """
         if _verbose:
             print('calling start')
-        # check to see if detaching is necessary
+        first = self._stage_completed + 1
+        for i in range(first, last+1):
+            if self._stage_completed < i:
+                next_stage = getattr(self, 'stage%d' % i)
+                next_stage()
+
+    def stage1(self):
+        """
+        Detach (if necessary), and redirect stdout to _monitor (if detaching).
+        """
+        if self._stage_completed > 0:
+            raise DaemonError("Attempted to run stage 1 twice")
         self.inherit_files = set(self.inherit_files or [])
         if started_by_init():
             if _verbose:
@@ -259,21 +251,69 @@ class Daemon(object):
             if _verbose:
                 print('detached')
             self._redirect = True
+        self._stage_completed = 1
+        return self
+
+    def stage2(self):
+        """
+        Turn off core dumps.
+        """
+        if self._stage_completed > 1:
+            raise DaemonError("Attempted to run stage 2 twice")
+        self.start(last=1)
         if self.prevent_core:
             prevent_core_dump()
-        if self.chroot is not None:
-            os.chroot(self.chroot)
+        self._stage_completed = 2
+        return self
+
+    def stage3(self):
+        """
+        Set uid & gid (possibly losing privilege).
+        """
+        if self._stage_completed > 2:
+            raise DaemonError("Attempted to run stage 3 twice")
+        self.start(last=2)
         if self.gid is not None:
             os.setgid(self.gid)
         if self.uid is not None:
             os.setuid(self.uid)
+        self._stage_completed = 3
+        return self
+
+    def stage4(self):
+        """
+        Change umask.
+        """
+        if self._stage_completed > 3:
+            raise DaemonError("Attempted to run stage 4 twice")
+        self.start(last=3)
         os.umask(self.umask)
+        self._stage_completed = 4
+        return self
+
+    def stage5(self):
+        """
+        Change working directory (default is /).
+        """
+        if self._stage_completed > 4:
+            raise DaemonError("Attempted to run stage 5 twice")
+        self.start(last=4)
         if not self.working_directory:
             raise ValueError(
                     'working_directory must be a valid path (received %r)' %
                     self.working_directory
                     )
         os.chdir(self.working_directory)
+        self._stage_completed = 5
+        return self
+
+    def stage6(self):
+        """
+        Set up PID file.
+        """
+        if self._stage_completed > 5:
+            raise DaemonError("Attempted to run stage 6 twice")
+        self.start(last=5)
         if _verbose:
             print('self.pid_file: %r' % self.pid_file)
         if self.pid_file is not None:
@@ -282,16 +322,47 @@ class Daemon(object):
             pid_file = self.pid_file
             if isinstance(pid_file, basestring):
                 self.pid_file = pid_file = PidLockFile(pid_file)
-            pid = pid_file.acquire()
+                pid_file.acquire()
+            pid = pid_file.seal()
             print('pid: %s' % pid)
+        self._stage_completed = 6
+        return self
+
+    def stage7(self):
+        """
+        Set up signal handlers.
+        """
+        if self._stage_completed > 6:
+            raise DaemonError("Attempted to run stage 7 twice")
+        self.start(last=6)
         self.__set_signals()
-        if run:
-            if _verbose:
-                print('start calling run')
-            self.finish_start()
-        if _verbose:
-            print('start not calling run')
-        self._two_stage = True
+        self._stage_completed = 7
+        return self
+
+    def stage8(self):
+        """
+        Close open files.
+        """
+        if self._stage_completed > 7:
+            raise DaemonError("Attempted to run stage 8 twice")
+        self.start(last=7)
+        close_open_files(exclude=self.inherit_files)
+        self._stage_completed = 8
+        return self
+
+    def stage9(self):
+        """
+        If detached, redirect streams to user supplied, or os.devnul.
+        """
+        if self._stage_completed > 8:
+            raise DaemonError("Attempted to run stage 9 twice")
+        self.start(last=8)
+        if self._redirect:
+            redirect(self.stdin, STDIN)
+            redirect(self.stdout, STDOUT)
+            redirect(self.stderr, STDERR)
+        self._stage_completed = 9
+        return self
 
 
 class LockError(Exception):
