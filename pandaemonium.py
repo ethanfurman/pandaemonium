@@ -175,7 +175,7 @@ class Daemon(object):
         # second fork
         pid = os.fork()
         if pid > 0:
-            raise SystemExit
+            os._exit(os.EX_OK)
 
     def monitor_startup(self, from_daemon):
         """
@@ -194,7 +194,7 @@ class Daemon(object):
                 print(''.join(feedback))
                 sys.stdout.flush()
                 raise SystemExit("Daemon failed.")
-        raise SystemExit
+        os._exit(os.EX_OK)
 
     def run(self):
         """
