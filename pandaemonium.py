@@ -41,7 +41,7 @@ import socket
 import sys
 import time
 
-version = 0, 1, 2
+version = 0, 1, 3
 
 STDIN = 0
 STDOUT = 1
@@ -70,8 +70,11 @@ def check_stage(func):
         stage = int(func.__name__[-1])
         if self._stage_completed >= stage:
             raise DaemonError("Attempted to run stage %d twice" % stage)
-        self.start(last=stage-1)
-        result = func()
+        if self._stage_completed < stage - 1:
+            self.start(last=stage-1)
+        if _verbose:
+            print('stage %d' % stage)
+        result = func(self)
         self._stage_completed = stage
         return result
     wrapper.__name__ = func.__name__
@@ -246,26 +249,26 @@ class Daemon(object):
         if self.detach is None:
             if started_by_init():
                 if _verbose:
-                    print('calling started_by_init')
+                    print('  started_by_init')
                 self.detach = False
             elif started_by_super_server():
                 if _verbose:
-                    print('calling started_by_super_server')
+                    print('  started_by_super_server')
                 self.inherit_files |= set([0, 1, 2])
                 self.detach = False
             else:
                 self.detach = True
         if self.detach:
             if _verbose:
-                print('checking std streams')
+                print('  checking std streams')
             for stream in (self.stdin, self.stdout, self.stderr):
                 if stream is not None:
                     self.inherit_files.add(stream)
             if _verbose:
-                print('detaching')
+                print('  detaching')
             self.__detach()
             if _verbose:
-                print('detached')
+                print('  detached')
             self._redirect = True
         return self
 
@@ -275,6 +278,8 @@ class Daemon(object):
         Turn off core dumps.
         """
         if self.prevent_core:
+            if _verbose:
+                print('  turning off core dumps')
             prevent_core_dump()
         return self
 
@@ -284,8 +289,12 @@ class Daemon(object):
         Set uid & gid (possibly losing privilege).
         """
         if self.gid is not None:
+            if _verbose:
+                print('  setting gid: %s' % self.gid)
             os.setgid(self.gid)
         if self.uid is not None:
+            if _verbose:
+                print('  setting uid: %s' % self.uid)
             os.setuid(self.uid)
         return self
 
@@ -294,6 +303,8 @@ class Daemon(object):
         """
         Change umask.
         """
+        if _verbose:
+            print('  setting umask: %s' % self.umask)
         os.umask(self.umask)
         return self
 
@@ -307,6 +318,8 @@ class Daemon(object):
                     'working_directory must be a valid path (received %r)' %
                     self.working_directory
                     )
+        if _verbose:
+            print('  changing working directory to: %s' % self.working_directory)
         os.chdir(self.working_directory)
         return self
 
@@ -316,16 +329,17 @@ class Daemon(object):
         Set up PID file.
         """
         if _verbose:
-            print('self.pid_file: %r' % self.pid_file)
+            print('  self.pid_file: %r' % self.pid_file)
         if self.pid_file is not None:
             if _verbose:
-                print('locking pid file')
+                print('  locking pid file')
             pid_file = self.pid_file
             if isinstance(pid_file, basestring):
                 self.pid_file = pid_file = PidLockFile(pid_file)
                 pid_file.acquire()
             pid = pid_file.seal()
-            print('pid: %s' % pid)
+            if _verbose:
+                print('  pid: %s' % pid)
         return self
 
     @check_stage
@@ -333,6 +347,8 @@ class Daemon(object):
         """
         Set up signal handlers.
         """
+        if _verbose:
+            print('  setting signal handlers')
         self.__set_signals()
         return self
 
@@ -341,6 +357,8 @@ class Daemon(object):
         """
         Close open files.
         """
+        if _verbose:
+            print('  closing open files')
         close_open_files(exclude=self.inherit_files)
         return self
 
@@ -350,6 +368,11 @@ class Daemon(object):
         If detached, redirect streams to user supplied, or os.devnul.
         """
         if self._redirect:
+            if _verbose:
+                print('  redirecting standard streams:')
+                print('    stdin  --> %s' % self.stdin)
+                print('    stdout --> %s' % self.stdout)
+                print('    stderr --> %s' % self.stderr)
             redirect(self.stdin, STDIN)
             redirect(self.stdout, STDOUT)
             redirect(self.stderr, STDERR)
@@ -362,14 +385,15 @@ class Daemon(object):
         Complete any remaining stages and run target (if it exists).
         """
         if _verbose:
-            print('calling start')
+            print('calling start with last of %d' % last)
         first = self._stage_completed + 1
         for i in range(first, last+1):
             if self._stage_completed < i:
                 next_stage = getattr(self, 'stage%d' % i)
                 next_stage()
-        self._stage_completed = 10
-        self.run()
+        if last == 9:
+            self._stage_completed = 10
+            self.run()
 
 
 class LockError(Exception):
