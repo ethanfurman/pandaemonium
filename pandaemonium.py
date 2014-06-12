@@ -41,7 +41,7 @@ import socket
 import sys
 import time
 
-version = 0, 1, 3
+version = 0, 1, 4
 
 STDIN = 0
 STDOUT = 1
@@ -206,7 +206,8 @@ class Daemon(object):
         if _verbose:
             print('run')
         if self.target is not None:
-            print('running target', self.target.__name__)
+            if _verbose:
+                print('running target', self.target.__name__)
             return self.target(*self.args, **self.kwargs)
 
     def __set_signals(self):
@@ -401,6 +402,11 @@ class LockError(Exception):
     Base class for lock-file errors.
     """
 
+class NotMyLock(LockError):
+    """
+    Lock file owned by another PID.
+    """
+
 class LockFailed(LockError):
     """
     Unable to lock file.
@@ -437,10 +443,12 @@ class PidLockFile(object):
 
         Check first for an existing, stale pid file.
         """
+        if _verbose:
+            print('acquiring lock')
         if self.is_stale():
-            print('pid is stale, breaking')
+            if _verbose:
+                print('lock is stale')
             self.break_lock()
-            print('broken')
         if time_out is None:
             time_out = self.time_out
         end_time = time.time() + time_out
@@ -464,57 +472,110 @@ class PidLockFile(object):
                 atexit.register(self.release)
                 break
 
+    def am_i_locking(self):
+        """
+        Return True if this file is my lock.
+        """
+        return self.file_obj is not None or self.read_pid == os.getpid()
+
     def break_lock(self):
         """
         Remove the file, thus breaking the lock.
         """
         try:
+            if _verbose:
+                print('breaking lock')
             os.unlink(self.file_name)
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.EEXIST:
+                if _verbose:
+                    print('%s does not exist' % self.file_name)
                 return
             raise LockError("Unable to break lock: %d: %s" % (exc.errno, exc.message))
         except Exception:
             exc = sys.exc_info()[1]
             raise LockError("Unable to break lock: %s" % (exc.message, ))
+        if _verbose:
+            print('lock broken')
 
-    def is_stale(self):
+    def is_locked(self):
+        """
+        Return True if the pid file exists, and is not stale.
+        """
+        if _verbose:
+            print('checking if locked')
+            print('%s exists: %s' % (self.file_name, os.path.exists(self.file_name)))
+        return os.path.exists(self.file_name) and not self.is_stale()
+
+    def is_stale(self, timeout=5):
         """
         Return True if the pid file contains a PID, and no such process exists.
         """
+        if self.file_obj is not None:
+            if _verbose:
+                print('our lock, definitely not stale')
+            return False
+        elif not os.path.exists(self.file_name):
+            if _verbose:
+                print("lock doesn't exist, can't be stale")
+            return False
         pid = self.read_pid()
         if pid is None:
-            return False
+            if _verbose:
+                print('not our lock, but not yet sealed')
+            # give it a few seconds to seal; if it doesn't
+            # consider it abandoned and therefore stale
+            end_time = time.time() + timeout
+            while end_time > time.time():
+                time.sleep(1)
+                pid = self.read_pid()
+                if pid is not None:
+                    break
+            else:
+                if _verbose:
+                    print('still not sealed')
+                return True
         try:
             # see if there is such a process by sending the null-signal
+            if _verbose:
+                print('checking on pid: %s' % pid)
             os.kill(pid, 0)
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ESRCH:
+                if _verbose:
+                    print("it's dead")
                 return True
+            if _verbose:
+                print('unhandled exception: %s' % exc)
+        if _verbose:
+            print("it's alive!")
         return False
 
     def read_pid(self):
         "Return PID stored in file, or None"
         if self.file_obj is not None:
             # we are in between acquiring and sealing the lock
+            if _verbose:
+                print('our lock, but not yet sealed, so no PID')
             return None
         try:
             pid_file = open(self.file_name)
             pid = pid_file.read()
             pid_file.close()
+            pid = int(pid.split('\n')[0])
         except Exception:
-            return None
-        try:
-            return int(pid.split('\n')[0])
-        except Exception:
-            return None
+            pid = None
+        if _verbose:
+            print('pid is %s' % pid)
+        return pid
 
     def release(self):
-        pid = self.read_pid()
-        if pid != os.getpid():
-            raise NotMyLock('Lock is owned by pid: %s' % pid)
+        if self.file_obj is None:
+            pid = self.read_pid()
+            if pid != os.getpid():
+                raise NotMyLock('Lock is owned by pid: %s' % pid)
         self.break_lock()
 
     def seal(self):
@@ -523,10 +584,14 @@ class PidLockFile(object):
 
         This should only be called after becoming a daemon.
         """
+        if _verbose:
+            print('sealing lock')
         pid = os.getpid()
         self.file_obj.write("%s\n" % pid)
         self.file_obj.close()
         self.file_obj = None
+        if _verbose:
+            print('with PID: %s' % pid)
         return pid
 
 
