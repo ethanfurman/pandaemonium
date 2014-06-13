@@ -41,7 +41,7 @@ import socket
 import sys
 import time
 
-version = 0, 1, 4
+version = 0, 2, 0
 
 STDIN = 0
 STDOUT = 1
