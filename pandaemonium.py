@@ -437,6 +437,20 @@ class PidLockFile(object):
         self.time_out = time_out
         self.file_obj = None
 
+    def __enter__(self):
+        """
+        Acquire and seal the lock.
+        """
+        self.acquire()
+        self.seal()
+        return self
+
+    def __exit__(self, *args):
+        """
+        Release lock.
+        """
+        self.break_lock()
+
     def acquire(self, time_out=None):
         """
         Create the file, establishing the lock, but do not write the PID.
