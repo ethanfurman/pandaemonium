@@ -41,7 +41,7 @@ import socket
 import sys
 import time
 
-version = 0, 3, 0
+version = 0, 3, 1
 
 STDIN = 0
 STDOUT = 1
@@ -338,6 +338,7 @@ class Daemon(object):
             if isinstance(pid_file, basestring):
                 self.pid_file = pid_file = PidLockFile(pid_file)
                 pid_file.acquire()
+                atexit.register(self.break_lock)
             pid = pid_file.seal()
             if _verbose:
                 print('  pid: %s' % pid)
@@ -483,7 +484,6 @@ class PidLockFile(object):
                     time.sleep(max(0.1, time_out/10.0))
             else:
                 self.file_obj = os.fdopen(fd, 'w')
-                atexit.register(self.release)
                 break
 
     def am_i_locking(self):
