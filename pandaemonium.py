@@ -39,9 +39,21 @@ import resource
 import signal
 import socket
 import sys
+import threading
 import time
 
-version = 0, 3, 1
+try:
+    from Queue import Queue
+except ImportError:
+    from queue import Queue
+
+__all__ = [
+        'Daemon', 'DaemonError', 'Parent',
+        'LockError', 'NotMyLock', 'LockFailed', 'AlreadyLocked', 'PidLockFile',
+        'FileTracker',
+        ]
+
+version = 0, 3, 2
 
 STDIN = 0
 STDOUT = 1
@@ -67,25 +79,41 @@ except NameError:
 
 def check_stage(func):
     def wrapper(self):
+        first = self._stage_completed + 1
         stage = int(func.__name__[-1])
-        if self._stage_completed >= stage:
+        if self._stage_completed >= stage or self.i_am == 'parent':
             raise DaemonError("Attempted to run stage %d twice" % stage)
-        if self._stage_completed < stage - 1:
-            self.start(last=stage-1)
+        for i in range(first, stage):
+            next_stage = getattr(self, 'stage%d' % i)
+            next_stage()
         if _verbose:
             print('stage %d' % stage)
-        result = func(self)
+        func(self)
         self._stage_completed = stage
-        return result
+        return self
     wrapper.__name__ = func.__name__
     wrapper.__doc__ = func.__doc__
     return wrapper
+
+
+class Parent(SystemExit):
+    """
+    raised by parent method after child detaches
+    """
+
+
+class DaemonError(Exception):
+    """
+    Exception raised if errors found in Daemon set up or processing"
+    """
 
 
 class Daemon(object):
     """
     Turn current process into a daemon.
     """
+
+    i_am = 'main'
 
     def __init__(self,
             target=None,                # function to run as daemon
@@ -94,8 +122,6 @@ class Daemon(object):
             detach=None,                # True means do it, False means don't,
                                         # None means True unless started by init
                                         # or superserver
-            monitor=True,               # True means do it, False means don't,
-                                        # a function means use it instead
             working_directory='/',      # directory to change to
             umask=0,                    # don't mask anything for file creation
             prevent_core=True,          # don't write core files
@@ -119,7 +145,6 @@ class Daemon(object):
             kwargs = dict()
         self.kwargs = kwargs
         self.detach = detach
-        self.monitor = monitor
         self.working_directory = working_directory
         self.umask = umask
         if process_ids is None:
@@ -150,65 +175,103 @@ class Daemon(object):
             if self._stage_completed != 10:
                 self.start()
 
+    def activate(self):
+        """
+        Enter daemon mode and return to caller (parent exits).
+        """
+        if _verbose:
+            print('calling activate')
+        self.i_am = 'daemon'
+        if self._stage_compeleted == 10:
+            raise DaemonError("daemon already started/activated")
+        try:
+            if self._stage_completed < 9:
+                self.stage9
+            self._stage_completed = 10
+        except Parent:
+            self.i_am = 'parent'
+            os._exit(os.EX_OK)
+
     def __detach(self):
         """
-        Detach from current session.  Parent calls monitor, child keeps going.
+        Detach from current session.  Parent raises exception, child keeps going.
         """
-        if self.monitor is True:
-            monitor = self.monitor_startup
-        else:
-            monitor = self.monitor
-        if monitor:
-            from_daemon, to_parent = os.pipe()
+        from_daemon_stdout, to_parent_out = os.pipe()
+        from_daemon_stderr, to_parent_err = os.pipe()
+        comms_channel = Queue()
         # first fork
         pid = os.fork()
         if pid > 0:
-            if monitor:
-                os.close(to_parent)
-                monitor(from_daemon)
+            self.i_am = 'parent'
+            os.close(to_parent_out)
+            os.close(to_parent_err)
+            self.monitor(comms_channel, from_daemon_stdout, from_daemon_stderr)
+            raise Parent
         # redirect stdout/err for rest of daemon set up
-        if monitor:
-            for stream in (sys.stderr, ):
-                if hasattr(stream, 'fileno') and stream.fileno() in (STDOUT, STDERR):
-                    os.dup2(to_parent, stream.fileno())
-            os.close(from_daemon)
-            os.close(to_parent)
+        # both activate() and start() will have already set self.i_am to 'daemon'
+        for stream, dest in ((sys.stdout, to_parent_out), (sys.stderr, to_parent_err)):
+            if (
+                    hasattr(stream, 'fileno')
+                    and stream.fileno() in (STDOUT, STDERR)
+                    and stream.fileno() not in self.inherit_files
+                ):
+                os.dup2(dest, stream.fileno())
+        os.close(from_daemon_stdout)
+        os.close(from_daemon_stderr)
+        os.close(to_parent_out)
+        os.close(to_parent_err)
         # start a new session
         os.setsid()
         # second fork
         pid = os.fork()
         if pid > 0:
+            self.i_am = 'child'
             os._exit(os.EX_OK)
 
-    def monitor_startup(self, from_daemon):
+    def monitor(self, comms_channel, from_daemon_stdout, from_daemon_stderr):
         """
-        Parent reads from_daemon until empty string returned, then quits.
+        Parent gets telemetry readings from daemon
+        
+        both self._stage_completed and self.output are updated
         """
-        feedback = ''
-        try:
+        def read_comm(name, channel):
             while True:
-                data = os.read(from_daemon, 1024)
-                if data:
-                    feedback += data.decode('utf-8')
-                else:
+                data = os.read(channel, 1024)
+                comms_channel.put((name, data))
+                if not data:
                     break
-        finally:
-            if feedback:
-                print(''.join(feedback))
-                sys.stdout.flush()
-                raise SystemExit("Daemon failed.")
-        os._exit(os.EX_OK)
-
+        threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
+        threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
+        output = []
+        error = []
+        active = 2
+        while active:
+            source, data = comms_channel.get()
+            if not data:
+                active -= 1
+            if source == 'err':
+                error.append(data)
+                continue
+            for i in range(9, 0, -1):
+                target = 'stage %d\n' % i
+                if target in data:
+                    self._stage_completed = i
+                    break
+            output.append(data)
+        self.stdout = ''.join(output)
+        self.stderr = ''.join(error)
+        if self.stderr:
+            raise DaemonError(self.stderr)
+        
     def run(self):
         """
         Either override this method, or pass target function to __init__.
         """
+        if self.target is None:
+            raise DaemonError('nothing to do')
         if _verbose:
-            print('run')
-        if self.target is not None:
-            if _verbose:
-                print('running target', self.target.__name__)
-            return self.target(*self.args, **self.kwargs)
+            print('running target', self.target.__name__)
+        self.target(*self.args, **self.kwargs)
 
     def __set_signals(self):
         """
@@ -218,7 +281,7 @@ class Daemon(object):
         handler_map = {}
         for sig, func in self.signal_map.items():
             if not isinstance(sig, baseint):
-                raise ValueError("%r is not a valid signal" % sig)
+                raise DaemonError("%r is not a valid signal" % sig)
             if func is None:
                 func = signal.SIG_IGN
             elif isinstance(func, basestring):
@@ -246,6 +309,7 @@ class Daemon(object):
         """
         Detach (if necessary), and redirect stdout to monitor_startup (if detaching).
         """
+        self.i_am = 'daemon'
         self.inherit_files = set(self.inherit_files or [])
         if self.detach is None:
             if started_by_init():
@@ -271,7 +335,6 @@ class Daemon(object):
             if _verbose:
                 print('  detached')
             self._redirect = True
-        return self
 
     @check_stage
     def stage2(self):
@@ -282,7 +345,6 @@ class Daemon(object):
             if _verbose:
                 print('  turning off core dumps')
             prevent_core_dump()
-        return self
 
     @check_stage
     def stage3(self):
@@ -297,7 +359,6 @@ class Daemon(object):
             if _verbose:
                 print('  setting uid: %s' % self.uid)
             os.setuid(self.uid)
-        return self
 
     @check_stage
     def stage4(self):
@@ -307,7 +368,6 @@ class Daemon(object):
         if _verbose:
             print('  setting umask: %s' % self.umask)
         os.umask(self.umask)
-        return self
 
     @check_stage
     def stage5(self):
@@ -315,14 +375,13 @@ class Daemon(object):
         Change working directory (default is /).
         """
         if not self.working_directory:
-            raise ValueError(
+            raise DaemonError(
                     'working_directory must be a valid path (received %r)' %
                     self.working_directory
                     )
         if _verbose:
             print('  changing working directory to: %s' % self.working_directory)
         os.chdir(self.working_directory)
-        return self
 
     @check_stage
     def stage6(self):
@@ -342,7 +401,6 @@ class Daemon(object):
             pid = pid_file.seal()
             if _verbose:
                 print('  pid: %s' % pid)
-        return self
 
     @check_stage
     def stage7(self):
@@ -352,7 +410,6 @@ class Daemon(object):
         if _verbose:
             print('  setting signal handlers')
         self.__set_signals()
-        return self
 
     @check_stage
     def stage8(self):
@@ -362,7 +419,6 @@ class Daemon(object):
         if _verbose:
             print('  closing open files')
         close_open_files(exclude=self.inherit_files)
-        return self
 
     @check_stage
     def stage9(self):
@@ -378,24 +434,20 @@ class Daemon(object):
             redirect(self.stdin, STDIN)
             redirect(self.stdout, STDOUT)
             redirect(self.stderr, STDERR)
-        return self
 
-    def start(self, last=9):
+    def start(self):
         """
         Enter daemon mode and call target (if it exists).
-
-        Complete any remaining stages and run target (if it exists).
         """
         if _verbose:
-            print('calling start with last of %d' % last)
-        first = self._stage_completed + 1
-        for i in range(first, last+1):
-            if self._stage_completed < i:
-                next_stage = getattr(self, 'stage%d' % i)
-                next_stage()
-        if last == 9:
-            self._stage_completed = 10
+            print('calling start')
+        try:
+            if self._stage_completed < 9:
+                self.stage9()
             self.run()
+        except Parent:
+            return
+        raise SystemExit
 
 
 class LockError(Exception):
@@ -598,6 +650,8 @@ class PidLockFile(object):
 
         This should only be called after becoming a daemon.
         """
+        if self.file_obj is None:
+            self.acquire()
         if _verbose:
             print('sealing lock')
         pid = os.getpid()
@@ -679,8 +733,10 @@ def redirect(stream, target_fd):
     """
     if stream is None:
         stream_fd = os.open(os.devnull, os.O_RDWR)
-    else:
+    elif not isinstance(stream, int):
         stream_fd = stream.fileno()
+    else:
+        stream_fd = stream
     os.dup2(stream_fd, target_fd)
 
 def started_by_init():
