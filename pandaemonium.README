@@ -114,7 +114,7 @@ then one has a couple options available:
         else:
             daemon = Daemon()
             daemon.pid_file = pid_file
-            daemon.start()
+            daemon.activate()
         # at this point, in either foreground or daemon mode, the pid file has
         # been sealed (has our correct pid written to it, and it has been
         # closed)
@@ -160,7 +160,7 @@ Daemon
         the string of where to create a PidLockFile
 
     inherit_files
-        open files or file descriptors to keep open
+        list of open files or file descriptors to keep open
 
     signal_map
         dictionary of signal names or numbers to method names or functions
