@@ -53,7 +53,7 @@ __all__ = [
         'FileTracker',
         ]
 
-version = 0, 3, 2
+version = 0, 5, 0
 
 STDIN = 0
 STDOUT = 1
@@ -182,7 +182,7 @@ class Daemon(object):
         if _verbose:
             print('calling activate')
         self.i_am = 'daemon'
-        if self._stage_compeleted == 10:
+        if self._stage_completed == 10:
             raise DaemonError("daemon already started/activated")
         try:
             if self._stage_completed < 9:
@@ -242,24 +242,19 @@ class Daemon(object):
                     break
         threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
         threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
-        output = []
-        error = []
+        output = bytes()
+        error = bytes()
         active = 2
         while active:
             source, data = comms_channel.get()
             if not data:
                 active -= 1
             if source == 'err':
-                error.append(data)
-                continue
-            for i in range(9, 0, -1):
-                target = 'stage %d\n' % i
-                if target in data:
-                    self._stage_completed = i
-                    break
-            output.append(data)
-        self.stdout = ''.join(output)
-        self.stderr = ''.join(error)
+                error += data
+            else:
+                output += data
+        self.stdout = output
+        self.stderr = error
         if self.stderr:
             raise DaemonError(self.stderr)
         
@@ -441,13 +436,16 @@ class Daemon(object):
         """
         if _verbose:
             print('calling start')
+        if self._stage_completed == 10:
+            raise DaemonError("daemon already started/activated")
         try:
             if self._stage_completed < 9:
                 self.stage9()
+            self._stage_completed = 10
             self.run()
+            raise SystemExit
         except Parent:
             return
-        raise SystemExit
 
 
 class LockError(Exception):
@@ -702,7 +700,7 @@ def close_open_files(exclude):
     max_files = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     keep = set()
     for file in exclude:
-        if isinstance(file, (int, long)):
+        if isinstance(file, baseint):
             keep.add(file)
         elif hasattr(file, 'fileno'):
             keep.add(file.fileno())

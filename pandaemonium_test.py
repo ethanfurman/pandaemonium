@@ -76,6 +76,8 @@ class TestPidLockFile(TestCase):
 
 
 class TestDaemon(object):
+    # this is not a TestCase because unittest cannot handle the daemons
+    # (it keeps combining the outputs, and failing the tests)
 
     passed = failed = 0
     messages = []
@@ -87,7 +89,7 @@ class TestDaemon(object):
         r, w = os.pipe()
         d = Daemon(target=leave_message, stdout=w)
         d.start()
-        passed = os.read(r, 1024) == "Okay, I made it!  G'bye!\n"
+        passed = os.read(r, 1024).decode('ascii') == "Okay, I made it!  G'bye!\n"
         if passed:
             self.passed += 1
         else:
@@ -103,7 +105,7 @@ class TestDaemon(object):
         r, w = os.pipe()
         d = MyDaemon(stdout=w)
         d.start()
-        passed = os.read(r, 1024) == "Running like the wind!\n"
+        passed = os.read(r, 1024).decode('ascii') == "Running like the wind!\n"
         if passed:
             self.passed += 1
         else:
@@ -116,30 +118,11 @@ class TestDaemon(object):
         if '-v' in sys.argv:
             print('\n'.join(self.messages))
         print('----------------------------------------------------------------------')
-        print('ran %d tests for Daemon\n' % self.passed)
+        print('ran %d tests for Daemon\n' % (self.passed + self.failed))
         if self.failed:
             print('failed: %d\n' % self.failed)
         else:
             print('OK\n')
-
-
-#class TcpServer(Daemon):
-#    """
-#    Serve up the handler.
-#    """
-#    def run(self):
-#        server = SocketServer.TCPServer(('127.0.0.1', 8069), RequestHandler)
-#        server.serve_forever()
-
-#class RequestHandler(SocketServer.BaseRequestHandler):
-#    """
-#    Return the incoming number doubled.
-#    """
-#    timeout = 15
-#    def handle(self):
-#        request = self.request.recv(1024).strip().split('\n')
-#        response = int(request) * 2
-#        self.request.sendall(str(response) + '\n')
 
 
 if __name__ == '__main__':
