@@ -4,7 +4,7 @@ pandaemonium
 n. the abode of all the daemons [1]_
 
 pandaemonium provides a framework for writing daemons in Python.  The API is
-based on the threading/multiprocessing models [2]_ [3]_, so the primary way
+based on the threading/multiprocessing model [2]_ [3]_, so the primary way
 of creating your own daemon is to either subclass and override the ``run``
 method, or provide a function as the ``target`` to the ``Daemon`` class.
 
@@ -13,8 +13,113 @@ Besides ``Daemon`` there is also a locking pid file -- ``PidLockFile``.
 name are provided to ``Daemon``, used automatically.
 
 
-usage
-=====
+simple usage
+------------
+
+    from pandaemonium import Daemon
+
+    def DoSomethingInteresting():
+        "Just like it says ;)"
+        pass
+
+    daemon = Daemon(target=DoSomethingInteresting)
+    daemon.start()
+    if daemon.output:
+        # daemon.output will contain any output generated during the
+        # daemonizing process, up to the stdin/stdout/stderr redirection
+        # (which is the last step); it can be parsed, examined, ignored, etc.
+        print daemon.output
+    
+
+or:
+
+    from pandaemonium import Daemon
+
+    class MyDaemon(Daemon):
+        def run():
+            # do some interesting stuff
+
+    md = MyDaemon().start()
+    if md.output:
+        # md.output will contain any output generated during the
+        # daemonizing process, up to the stdin/stdout/stderr redirection
+        # (which is the last step); it can be parsed, examined, ignored, etc.
+        print md.output
+
+The sequence of events that takes place when `start()` is called (adapted from
+The Linux Programming Interface by Michael Kerrisk) is:
+
+  - detach from the current process, creating a new session
+  - turn off core dumps
+  - set uid and gid
+  - set umask
+  - set working directory
+  - create pid file
+  - set signal handlers
+  - close inherited file handles
+  - redirect stdin/stdout/stderr
+
+If any exceptions occur or if any feedback is generated during the `start`
+process it will be available as the `error` and `output` attributes of the
+daemon instance, where the parent process can analyze, print, etc before
+quiting.
+
+Note:  In order to examine the `error` attribute you will need to catch the
+`DaemonError` exception that is raised.
+
+
+advanced usage
+--------------
+
+If more control is needed than what is provided by the parameters of Daemon
+then one has a couple options available:
+
+  - if certain set up / initialization steps need to happen somewhere in the
+    `start()` sequence, such as after setting the umask and before changing
+    the working directory::
+
+        Daemon.stage4()
+        # stages 1-4 have now been completed
+        # do custom steps here
+        Daemon.start()
+        # stages 5-9 have now been completed, and run() called
+
+    or with the context manager:
+
+        with Daemon.stage4():
+            # stages 1-4 have now been completed
+            # do custom steps here
+        # on leaving the context manager, `Daemon.start()` is called
+
+  - one can also override any of the stages in a subclass (make sure and
+    decorate with `check_stage`:
+
+        class MyDaemon(Daemon):
+            def run(self, ip):
+                # do stuff
+            @check_stage
+            def stage7(self):
+                # do some custom stuff with signals set up
+
+        md = MyDaemon('192.168.11.1')
+        md.start()
+
+  - or, to simplify between foreground and daemon operation:
+
+        foreground = sys.argv[2:3] == ['--foreground']
+        pid_file = PidLockFile('/some/path/to/lock.pid')
+        pid_file.acquire()
+        if foreground:
+            pid_file.seal()
+        else:
+            daemon = Daemon()
+            daemon.pid_file = pid_file
+            daemon.start()
+        # at this point, in either foreground or daemon mode, the pid file has
+        # been sealed (has our correct pid written to it, and it has been
+        # closed)
+        run_main_program()
+
 
 Daemon
 ------
@@ -32,11 +137,13 @@ Daemon
     kwargs
         keyword args to provide to target
 
-    chroot
-        attempt to jail the daemon in this directory
+    detach
+        `None` (default) means figure it out, `True` means yes, `False` means no.
+        Figuring it out means if the parent process is `init`, or a `super
+        server`, do not detach
 
     working_directory
-        directory to change to (relative to chroot, if any)
+        directory to change to (relative to chroot, if one is in effect)
 
     umask
         mask to use when creating files
@@ -47,6 +154,11 @@ Daemon
     process_ids
         tuple of (uid, gid) to switch process to (use (None, None) to disable)
 
+    pid_file
+        `None` (default), or
+        a PidLockFile instance, or
+        the string of where to create a PidLockFile
+
     inherit_files
         open files or file descriptors to keep open
 
@@ -54,48 +166,36 @@ Daemon
         dictionary of signal names or numbers to method names or functions
 
     stdin / stdout / stderr
-        streams to map the standard streams to (default is ``os.devnull``)
+        streams to map the standard streams to
+        default is `None` which is mapped to ``os.devnull``
+
 
 ``Daemon.run()``
-
+''''''''''''''''
     Method representing the daemon's activity.
 
     You may override this method in a subclass.  The standard ``run``
     method invokes the callable object passed to the object's constructor as
-    the target argument, if any, with sequential and keyword arguments taken
-    from the *args* and *kwargs* arguments, respectively.
+    the `target` argument, if any, with sequential and keyword arguments taken
+    from the `args` and `kwargs` arguments, respectively.
 
-``Daemon.start(run=True)``
-
+``Daemon.start()``
+''''''''''''''''''
     Start the daemon's activity.
 
-    This must be called at most once per daemon object.  It arranges for the
+    This may be called at most once per daemon object.  It arranges for the
     object's ``run`` method to be invoked as a daemon process.
 
-    If ``run`` is ``False`` then ``start`` enters daemon mode, but returns
-    just before closing open files and calling ``run``.  This is useful if one
-    needs to do additional setup in the daemon process.
+``Daemon.monitor()``
+''''''''''''''''''''
+    Collects stdout and stderr from Daemon process until stage 9 and attaches
+    it to the daemon instance as ``output`` and ``error``.  Can be overridden
+    if one wants to do more interesting stuff with the daemon's output
 
-``Daemon.finish_start()``
-
-    Only call if ``Daemon.start()`` was called with ``run=False``.  Finishes
-    daemon setup and calls ``run``.
-
-``Daemon context manager``
-
-    Instead of calling ``start(run=False)``, doing additional set up, and then
-    calling ``finish_start()``, one can instead use ``Daemon`` as a context
-    manager::
-
-        daemon = Daemon()
-        with daemon:
-            # now in daemon mode, but open files have not been closed nor
-            # have the std streams been redirected to their final values
-            do_some_more_setup_as_daemon()
-        # upon exiting the context manager all non-inherited files are closed
-        # and the std streams redirected
-        # nothing here is ever executed
-    
+``Daemon.stage[1-9]()``
+''''''''''''''''''''''''''
+    One can override the various stages for even more customizations options.
+    Make sure and decorate such functions with ``check_stage``.
 
 
 [1] http://dictionary.reference.com/browse/pandemonium
