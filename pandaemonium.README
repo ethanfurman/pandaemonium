@@ -193,6 +193,35 @@ Daemon
     Make sure and decorate such functions with ``check_stage``.
 
 
+PidLockFile
+-----------
+
+``PidLockFile(file_name, time_out)``
+
+    file_name
+        full path and name of file to use for locking
+
+    time_out
+        how long to wait before concluding that an existing held lock is not
+        going to be released (default: -1, meaning conclude immediately)
+
+``PidLockFile.acquire(time_out=None)``
+''''''''''''''''''''''''''''''''''''''
+    attempt to capture the lock file; if time_out is `None` use the time out
+    specified when PidLockFile was created.
+
+``PidLockFile.seal()``
+''''''''''''''''''''''
+    write the current process' PID into the acquired file and close it --
+    should only be called by the daemon process or the stored PID will not be
+    correct.
+
+``PidLockFile.release()``
+'''''''''''''''''''''''''
+    remove the lock file, releasing the lock.
+
+
+
 [1] http://dictionary.reference.com/browse/pandemonium
 [2] https://docs.python.org/2/library/threading.html#threading.Thread
 [3] https://docs.python.org/2/library/multiprocessing.html#multiprocessing.Process
