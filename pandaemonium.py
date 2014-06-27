@@ -34,6 +34,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import atexit
 import errno
+import logging
 import os
 import resource
 import signal
@@ -54,7 +55,29 @@ __all__ = [
         'FileTracker',
         ]
 
-version = 0, 5, 0
+class NullHandler(logging.Handler):
+    """
+    This handler does nothing. It's intended to be used to avoid the
+    "No handlers could be found for logger XXX" one-off warning. This is
+    important for library code, which may contain code to log events. If a user
+    of the library does not configure logging, the one-off warning might be
+    produced; to avoid this, the library developer simply needs to instantiate
+    a NullHandler and add it to the top-level logger of the library module or
+    package.  Taken from 2.7 lib.
+    """
+    def handle(self, record):
+        """Stub."""
+
+    def emit(self, record):
+        """Stub."""
+
+    def createLock(self):
+        self.lock = None
+
+logger = logging.getLogger('pandaemonium')
+logger.addHandler(NullHandler())
+
+version = 0, 5, 1
 
 STDIN = 0
 STDOUT = 1
@@ -68,8 +91,6 @@ signal_map = dict(
     SIGTTIN = None,
     SIGTTOU = None,
     )
-
-_verbose = False
 
 try:
     basestring
@@ -87,11 +108,9 @@ def check_stage(func):
         for i in range(first, stage):
             next_stage = getattr(self, 'stage%d' % i)
             next_stage()
-        if _verbose:
-            print('stage %d' % stage)
+        self.logger.debug('stage %d', stage)
         func(self)
         self._stage_completed = stage
-        #return self
     wrapper.__name__ = func.__name__
     wrapper.__doc__ = func.__doc__
     return wrapper
@@ -135,6 +154,7 @@ class Daemon(object):
             stdout=None,                # redirect stdout after daemonization
             stderr=None,                # redirect stderr after daemonization
             ):
+        self.logger = logging.getLogger('pandaemonium.' + self.__class__.__name__)
         self.prevent_core = prevent_core
         if prevent_core:
             prevent_core_dump()
@@ -159,15 +179,13 @@ class Daemon(object):
         self.stderr = stderr
         self._redirect = False
         self._stage_completed = 0
-        if _verbose:
-            print('finished __init__')
+        self.logger.info('finished __init__')
 
     def activate(self):
         """
         Enter daemon mode and return to caller (parent exits).
         """
-        if _verbose:
-            print('calling activate')
+        self.logger.info('calling activate')
         self.i_am = 'daemon'
         if self._stage_completed == 10:
             raise DaemonError("daemon already started/activated")
@@ -260,8 +278,7 @@ class Daemon(object):
         """
         if self.target is None:
             raise DaemonError('nothing to do')
-        if _verbose:
-            print('running target', self.target.__name__)
+        self.logger.info('running target', self.target.__name__)
         self.target(*self.args, **self.kwargs)
 
     def __set_signals(self):
@@ -304,27 +321,22 @@ class Daemon(object):
         self.inherit_files = set(self.inherit_files or [])
         if self.detach is None:
             if started_by_init():
-                if _verbose:
-                    print('  started_by_init')
+                self.logger.info('  started_by_init')
                 self.detach = False
             elif started_by_super_server():
-                if _verbose:
-                    print('  started_by_super_server')
+                self.logger.info('  started_by_super_server')
                 self.inherit_files |= set([0, 1, 2])
                 self.detach = False
             else:
                 self.detach = True
         if self.detach:
-            if _verbose:
-                print('  checking std streams')
+            self.logger.info('  checking std streams')
             for stream in (self.stdin, self.stdout, self.stderr):
                 if stream is not None:
                     self.inherit_files.add(stream)
-            if _verbose:
-                print('  detaching')
+            self.logger.info('  detaching')
             self.__detach()
-            if _verbose:
-                print('  detached')
+            self.logger.info('  detached')
             self._redirect = True
 
     @check_stage
@@ -333,8 +345,7 @@ class Daemon(object):
         Turn off core dumps.
         """
         if self.prevent_core:
-            if _verbose:
-                print('  turning off core dumps')
+            self.logger.info('  turning off core dumps')
             prevent_core_dump()
 
     @check_stage
@@ -343,12 +354,10 @@ class Daemon(object):
         Set uid & gid (possibly losing privilege).
         """
         if self.gid is not None:
-            if _verbose:
-                print('  setting gid: %s' % self.gid)
+            self.logger.info('  setting gid: %s' % self.gid)
             os.setgid(self.gid)
         if self.uid is not None:
-            if _verbose:
-                print('  setting uid: %s' % self.uid)
+            self.logger.info('  setting uid: %s' % self.uid)
             os.setuid(self.uid)
 
     @check_stage
@@ -356,8 +365,7 @@ class Daemon(object):
         """
         Change umask.
         """
-        if _verbose:
-            print('  setting umask: %s' % self.umask)
+        self.logger.info('  setting umask: %s' % self.umask)
         os.umask(self.umask)
 
     @check_stage
@@ -370,8 +378,7 @@ class Daemon(object):
                     'working_directory must be a valid path (received %r)' %
                     self.working_directory
                     )
-        if _verbose:
-            print('  changing working directory to: %s' % self.working_directory)
+        self.logger.info('  changing working directory to: %s' % self.working_directory)
         os.chdir(self.working_directory)
 
     @check_stage
@@ -379,27 +386,23 @@ class Daemon(object):
         """
         Set up PID file.
         """
-        if _verbose:
-            print('  self.pid_file: %r' % self.pid_file)
+        self.logger.info('  self.pid_file: %r' % self.pid_file)
         if self.pid_file is not None:
-            if _verbose:
-                print('  locking pid file')
+            self.logger.info('  locking pid file')
             pid_file = self.pid_file
             if isinstance(pid_file, basestring):
                 self.pid_file = pid_file = PidLockFile(pid_file)
                 pid_file.acquire()
                 atexit.register(self.break_lock)
             pid = pid_file.seal()
-            if _verbose:
-                print('  pid: %s' % pid)
+            self.logger.info('  pid: %s' % pid)
 
     @check_stage
     def stage7(self):
         """
         Set up signal handlers.
         """
-        if _verbose:
-            print('  setting signal handlers')
+        self.logger.info('  setting signal handlers')
         self.__set_signals()
 
     @check_stage
@@ -407,8 +410,7 @@ class Daemon(object):
         """
         Close open files.
         """
-        if _verbose:
-            print('  closing open files')
+        self.logger.info('  closing open files')
         close_open_files(exclude=self.inherit_files)
 
     @check_stage
@@ -417,11 +419,10 @@ class Daemon(object):
         If detached, redirect streams to user supplied, or os.devnul.
         """
         if self._redirect:
-            if _verbose:
-                print('  redirecting standard streams:')
-                print('    stdin  --> %s' % self.stdin)
-                print('    stdout --> %s' % self.stdout)
-                print('    stderr --> %s' % self.stderr)
+            self.logger.info('  redirecting standard streams:')
+            self.logger.info('    stdin  --> %s' % self.stdin)
+            self.logger.info('    stdout --> %s' % self.stdout)
+            self.logger.info('    stderr --> %s' % self.stderr)
             redirect(self.stdin, STDIN)
             redirect(self.stdout, STDOUT)
             redirect(self.stderr, STDERR)
@@ -430,8 +431,7 @@ class Daemon(object):
         """
         Enter daemon mode and call target (if it exists).
         """
-        if _verbose:
-            print('calling start')
+        self.logger.info('calling start')
         if self._stage_completed == 10:
             raise DaemonError("daemon already started/activated")
         try:
@@ -474,12 +474,15 @@ class PidLockFile(object):
         """
         file_name and time_out to be used for pid file.
         """
+        self.logger = logging.getLogger('pandaemonium.PidLockFile')
         if not file_name or file_name[0] != '/':
-            raise LockError("%r is not an absolute path")
+            self.logger.error('%r is not an absolute path', file_name)
+            raise LockError("%r is not an absolute path" % file_name)
         try:
             time_out = int(time_out)
         except Exception:
-            raise LockError("Unable to convert %r to an integer")
+            self.logger.error('unable to convert %r to an integer', time_out)
+            raise LockError("Unable to convert %r to an integer" % time_out)
         self.file_name = file_name
         self.time_out = time_out
         self.file_obj = None
@@ -504,11 +507,9 @@ class PidLockFile(object):
 
         Check first for an existing, stale pid file.
         """
-        if _verbose:
-            print('acquiring lock')
+        self.logger.info('acquiring lock')
         if self.is_stale():
-            if _verbose:
-                print('lock is stale')
+            self.logger.info('lock is stale')
             self.break_lock()
         if time_out is None:
             time_out = self.time_out
@@ -523,8 +524,10 @@ class PidLockFile(object):
             except OSError:
                 exc = sys.exc_info()[1]
                 if exc.errno != errno.EEXIST:
+                    self.logger.error('unable to create %r', self.file_name)
                     raise LockFailed("Unable to create %r" % self.file_name)
                 elif time_out < 0:
+                    self.logger.error('%s is already locked', self.file_name)
                     raise AlreadyLocked("%s is already locked" % self.file_name)
                 elif time.time() < end_time:
                     time.sleep(max(0.1, time_out/10.0))
@@ -543,29 +546,26 @@ class PidLockFile(object):
         Remove the file, thus breaking the lock.
         """
         try:
-            if _verbose:
-                print('breaking lock')
+            self.logger.info('breaking lock')
             os.unlink(self.file_name)
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.EEXIST:
-                if _verbose:
-                    print('%s does not exist' % self.file_name)
+                self.logger.info('%s does not exist' % self.file_name)
                 return
+            self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %d: %s" % (exc.errno, exc.message))
         except Exception:
             exc = sys.exc_info()[1]
+            self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %s" % (exc.message, ))
-        if _verbose:
-            print('lock broken')
+        self.logger.info('lock broken')
 
     def is_locked(self):
         """
         Return True if the pid file exists, and is not stale.
         """
-        if _verbose:
-            print('checking if locked')
-            print('%s exists: %s' % (self.file_name, os.path.exists(self.file_name)))
+        self.logger.info('checking if locked')
         return os.path.exists(self.file_name) and not self.is_stale()
 
     def is_stale(self, timeout=5):
@@ -573,17 +573,14 @@ class PidLockFile(object):
         Return True if the pid file contains a PID, and no such process exists.
         """
         if self.file_obj is not None:
-            if _verbose:
-                print('our lock, definitely not stale')
+            self.logger.info('our lock, definitely not stale')
             return False
         elif not os.path.exists(self.file_name):
-            if _verbose:
-                print("lock doesn't exist, can't be stale")
+            self.logger.info("lock doesn't exist, can't be stale")
             return False
         pid = self.read_pid()
         if pid is None:
-            if _verbose:
-                print('not our lock, but not yet sealed')
+            self.logger.info('not our lock, but not yet sealed')
             # give it a few seconds to seal; if it doesn't
             # consider it abandoned and therefore stale
             end_time = time.time() + timeout
@@ -593,32 +590,26 @@ class PidLockFile(object):
                 if pid is not None:
                     break
             else:
-                if _verbose:
-                    print('still not sealed')
+                self.logger.info('still not sealed')
                 return True
         try:
             # see if there is such a process by sending the null-signal
-            if _verbose:
-                print('checking on pid: %s' % pid)
+            self.logger.info('checking on pid: %s' % pid)
             os.kill(pid, 0)
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ESRCH:
-                if _verbose:
-                    print("it's dead")
+                self.logger.info("it's dead")
                 return True
-            if _verbose:
-                print('unhandled exception: %s' % exc)
-        if _verbose:
-            print("it's alive!")
+            self.logger.info('unhandled exception: %s' % exc)
+        self.logger.info("it's alive!")
         return False
 
     def read_pid(self):
         "Return PID stored in file, or None"
         if self.file_obj is not None:
             # we are in between acquiring and sealing the lock
-            if _verbose:
-                print('our lock, but not yet sealed, so no PID')
+            self.logger.info('our lock, but not yet sealed, so no PID')
             return None
         try:
             pid_file = open(self.file_name)
@@ -627,8 +618,7 @@ class PidLockFile(object):
             pid = int(pid.split('\n')[0])
         except Exception:
             pid = None
-        if _verbose:
-            print('pid is %s' % pid)
+        self.logger.info('pid is %s' % pid)
         return pid
 
     def release(self):
@@ -638,6 +628,7 @@ class PidLockFile(object):
         if self.file_obj is None:
             pid = self.read_pid()
             if pid != os.getpid():
+                self.logger.error('lock is owned by pid: %s', pid)
                 raise NotMyLock('Lock is owned by pid: %s' % pid)
         self.break_lock()
 
@@ -649,14 +640,12 @@ class PidLockFile(object):
         """
         if self.file_obj is None:
             self.acquire()
-        if _verbose:
-            print('sealing lock')
+        self.logger.info('sealing lock')
         pid = os.getpid()
         self.file_obj.write("%s\n" % pid)
         self.file_obj.close()
         self.file_obj = None
-        if _verbose:
-            print('with PID: %s' % pid)
+        self.logger.info('with PID: %s' % pid)
         return pid
 
 
@@ -668,10 +657,12 @@ class FileTracker(object):
     builtin_open = open
     _cache = {}
     _active = False
+    _logger = logging.getLogger('pandaemonium.FileTracker')
     @classmethod
     def __call__(cls, name, *args, **kwds):
         file = cls.builtin_open(name, *args, **kwds)
         cls._cache[name] = file
+        cls._logger.info('opened: %s', name)
         return file
     @classmethod
     def active(cls, name):
@@ -695,6 +686,7 @@ class FileTracker(object):
                 closed.append(name)
         for name in closed:
             cls._cache.pop(name)
+            cls._logger.info('closed: %s', name)
         return cls._cache.items()
     @classmethod
     def install(cls):
@@ -707,6 +699,7 @@ class FileTracker(object):
                 __builtins__['open'] = cls()
             else:
                 __builtins__.open = cls()
+            cls._logger.info('FileTracker active')
 
 
 def close_open_files(exclude):
