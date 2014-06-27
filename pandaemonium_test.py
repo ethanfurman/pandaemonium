@@ -1,4 +1,4 @@
-from pandaemonium import Daemon, DaemonError, Parent
+from pandaemonium import Daemon, DaemonError, Parent, check_stage
 from pandaemonium import LockError, NotMyLock, LockFailed, AlreadyLocked, PidLockFile
 from pandaemonium import FileTracker
 
@@ -112,9 +112,25 @@ class TestDaemon(object):
             self.failed += 1
         self.messages.append('test_run: %s' % (['failed', 'passed'][passed], ))
 
+    def test_failure(self):
+        print('.')
+        class DeadDaemon(Daemon):
+            def run():
+                print("wow! it happenned!")
+            @check_stage
+            def stage5(self):
+                1 / 0
+        d = DeadDaemon()
+        d.start()
+        if 'ZeroDivisionError' in d.error:
+            self.passed += 1
+        else:
+            self.failed += 1
+
     def run(self):
         self.test_target()
         self.test_run()
+        self.test_failure()
         if '-v' in sys.argv:
             print('\n'.join(self.messages))
         print('----------------------------------------------------------------------')

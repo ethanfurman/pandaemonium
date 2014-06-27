@@ -41,6 +41,7 @@ import socket
 import sys
 import threading
 import time
+import traceback
 
 try:
     from Queue import Queue
@@ -48,7 +49,7 @@ except ImportError:
     from queue import Queue
 
 __all__ = [
-        'Daemon', 'DaemonError', 'Parent',
+        'Daemon', 'DaemonError', 'Parent', 'check_stage',
         'LockError', 'NotMyLock', 'LockFailed', 'AlreadyLocked', 'PidLockFile',
         'FileTracker',
         ]
@@ -90,7 +91,7 @@ def check_stage(func):
             print('stage %d' % stage)
         func(self)
         self._stage_completed = stage
-        return self
+        #return self
     wrapper.__name__ = func.__name__
     wrapper.__doc__ = func.__doc__
     return wrapper
@@ -161,20 +162,6 @@ class Daemon(object):
         if _verbose:
             print('finished __init__')
 
-    def __enter__(self):
-        """
-        Enter context manager, returning self.
-        """
-        return self
-
-    def __exit__(self, *args):
-        """
-        Finish starting the daemon if it hasn't been.
-        """
-        if args == (None, None, None):
-            if self._stage_completed != 10:
-                self.start()
-
     def activate(self):
         """
         Enter daemon mode and return to caller (parent exits).
@@ -239,6 +226,7 @@ class Daemon(object):
                 data = os.read(channel, 1024)
                 comms_channel.put((name, data))
                 if not data:
+                    os.close(channel)
                     break
         threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
         threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
@@ -253,10 +241,18 @@ class Daemon(object):
                 error += data
             else:
                 output += data
-        self.stdout = output
-        self.stderr = error
-        if self.stderr:
-            raise DaemonError(self.stderr)
+        self.output = output.decode('utf8')
+        self.error = error.decode('utf8')
+
+    def report(self):
+        """
+        print output and error attributes, and quit
+        """
+        print(self.output)
+        if self.error:
+            print(self.error)
+            raise SystemError('Daemon reported error')
+        raise SystemExit
         
     def run(self):
         """
@@ -636,6 +632,9 @@ class PidLockFile(object):
         return pid
 
     def release(self):
+        """
+        delete the file/lock if it is ours
+        """
         if self.file_obj is None:
             pid = self.read_pid()
             if pid != os.getpid():
@@ -662,6 +661,10 @@ class PidLockFile(object):
 
 
 class FileTracker(object):
+    """
+    useful for tracking files that are still open at time of daemonization
+    that need to stay open (such as /dev/random)
+    """
     builtin_open = open
     _cache = {}
     _active = False
@@ -672,6 +675,10 @@ class FileTracker(object):
         return file
     @classmethod
     def active(cls, name):
+        """
+        return the open file object referred to by name
+        raise an error if no such open file exists
+        """
         cls.open_files()
         try:
             return cls._cache[name]
@@ -679,6 +686,9 @@ class FileTracker(object):
             raise ValueError('%s has been closed' % name)
     @classmethod
     def open_files(cls):
+        """
+        return list of (name, file_object) tuples for all tracked, open files
+        """
         closed = []
         for name, file in cls._cache.items():
             if file.closed:
@@ -688,6 +698,9 @@ class FileTracker(object):
         return cls._cache.items()
     @classmethod
     def install(cls):
+        """
+        start tracking calls to `open()`
+        """
         if cls._active is not True:
             cls._active = True
             if isinstance(__builtins__, dict):

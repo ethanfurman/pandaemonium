@@ -24,11 +24,14 @@ simple usage
 
     daemon = Daemon(target=DoSomethingInteresting)
     daemon.start()
-    if daemon.output:
-        # daemon.output will contain any output generated during the
-        # daemonizing process, up to the stdin/stdout/stderr redirection
-        # (which is the last step); it can be parsed, examined, ignored, etc.
-        print daemon.output
+    #
+    # daemon.output will contain any stdout output generated during the
+    # daemonizing process, up to the stdin/stdout/stderr redirection
+    #
+    # daemon.error contains anything sent to the daemon's stderr -- which
+    # most likely means the daemon died due to an exception
+    #
+    # both can be parsed, examined, ignored, etc.
     
 
 or:
@@ -40,11 +43,6 @@ or:
             # do some interesting stuff
 
     md = MyDaemon().start()
-    if md.output:
-        # md.output will contain any output generated during the
-        # daemonizing process, up to the stdin/stdout/stderr redirection
-        # (which is the last step); it can be parsed, examined, ignored, etc.
-        print md.output
 
 The sequence of events that takes place when `start()` is called (adapted from
 The Linux Programming Interface by Michael Kerrisk) is:
@@ -84,13 +82,6 @@ then one has a couple options available:
         Daemon.start()
         # stages 5-9 have now been completed, and run() called
 
-    or with the context manager:
-
-        with Daemon.stage4():
-            # stages 1-4 have now been completed
-            # do custom steps here
-        # on leaving the context manager, `Daemon.start()` is called
-
   - one can also override any of the stages in a subclass (make sure and
     decorate with `check_stage`:
 
@@ -119,6 +110,10 @@ then one has a couple options available:
         # been sealed (has our correct pid written to it, and it has been
         # closed)
         run_main_program()
+
+If one's desire is to start the daemon and automatically have any output
+printed to screen, one can use `daemon.report()` which prints whatever was
+received from the daemon and then quits.
 
 
 Daemon
