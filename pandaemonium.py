@@ -77,7 +77,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 5, 1
+version = 0, 5, 2
 
 STDIN = 0
 STDOUT = 1
@@ -191,10 +191,14 @@ class Daemon(object):
             raise DaemonError("daemon already started/activated")
         try:
             if self._stage_completed < 9:
-                self.stage9
+                self.stage9()
             self._stage_completed = 10
         except Parent:
             self.i_am = 'parent'
+            if self.output:
+                print(self.output)
+            if self.error:
+                print(self.error)
             os._exit(os.EX_OK)
 
     def __detach(self):
