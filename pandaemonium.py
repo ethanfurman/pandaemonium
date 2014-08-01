@@ -77,7 +77,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 5, 2
+version = 0, 5, 5
 
 STDIN = 0
 STDOUT = 1
@@ -143,7 +143,7 @@ class Daemon(object):
                                         # None means True unless started by init
                                         # or superserver
             working_directory='/',      # directory to change to
-            umask=0,                    # don't mask anything for file creation
+            umask=0o077,                # only allow the daemon access to its files
             prevent_core=True,          # don't write core files
             process_ids=None,           # uid, gid to switch to (None means ask
                                         # the os who is really running things
@@ -368,6 +368,8 @@ class Daemon(object):
     def stage4(self):
         """
         Change umask.
+
+        Default setting allows group and world nothing.
         """
         self.logger.info('  setting umask: %s' % self.umask)
         os.umask(self.umask)
@@ -666,7 +668,6 @@ class FileTracker(object):
     def __call__(cls, name, *args, **kwds):
         file = cls.builtin_open(name, *args, **kwds)
         cls._cache[name] = file
-        cls._logger.info('opened: %s', name)
         return file
     @classmethod
     def active(cls, name):
@@ -690,7 +691,6 @@ class FileTracker(object):
                 closed.append(name)
         for name in closed:
             cls._cache.pop(name)
-            cls._logger.info('closed: %s', name)
         return cls._cache.items()
     @classmethod
     def install(cls):

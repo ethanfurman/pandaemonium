@@ -62,8 +62,10 @@ process it will be available as the `error` and `output` attributes of the
 daemon instance, where the parent process can analyze, print, etc before
 quiting.
 
-Note:  In order to examine the `error` attribute you will need to catch the
-`DaemonError` exception that is raised.
+Note:  Most guides on writing daemons specify setting the umask to 0, but
+this creates a security hole as all files become world readable/writable by
+default.  Pandaemonium sets the umask to 077, but that can be changed if
+desired.
 
 
 advanced usage

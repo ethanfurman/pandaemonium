@@ -5,7 +5,7 @@ import os
 long_desc = open('pandaemonium.README').read()
 
 setup( name='pandaemonium',
-       version= '0.5.2',
+       version= '0.5.5',
        license='BSD License',
        description='Framework for writing daemons, with API similar to threading and multiprocessing.',
        long_description=long_desc,
@@ -26,5 +26,3 @@ setup( name='pandaemonium',
             'Topic :: Software Development',
             ],
     )
-
-
