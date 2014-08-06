@@ -49,6 +49,11 @@ try:
 except ImportError:
     from queue import Queue
 
+if hasattr(os, 'initgroups'):
+    INITGROUPS = True
+else:
+    INITGROUPS = False
+
 __all__ = [
         'Daemon', 'DaemonError', 'Parent', 'check_stage',
         'LockError', 'NotMyLock', 'LockFailed', 'AlreadyLocked', 'PidLockFile',
@@ -146,7 +151,8 @@ class Daemon(object):
             umask=0o077,                # only allow the daemon access to its files
             prevent_core=True,          # don't write core files
             process_ids=None,           # uid, gid to switch to (None means ask
-                                        # the os who is really running things
+                                        # the os who is really running things)
+            init_groups=INITGROUPS,     # default to True if present in 'os'
             pid_file=None,              # string or actual locking file
             inherit_files=None,         # iterable of files or fds to not close
             signal_map=None,            # map of signals:functions for daemon
@@ -355,7 +361,7 @@ class Daemon(object):
     @check_stage
     def stage3(self):
         """
-        Set uid & gid (possibly losing privilege).
+        Set uid & gid (possibly losing privilege), call os.initgroups().
         """
         if self.gid is not None:
             self.logger.info('  setting gid: %s' % self.gid)
@@ -363,6 +369,10 @@ class Daemon(object):
         if self.uid is not None:
             self.logger.info('  setting uid: %s' % self.uid)
             os.setuid(self.uid)
+        if self.init_groups:
+            if not INITGROUPS:
+                raise DaemonError('initgroups not supported in this version of Python')
+            os.initgroups(pwd.getpwuid(os.geteuid()).pw_name, os.getegid())
 
     @check_stage
     def stage4(self):
