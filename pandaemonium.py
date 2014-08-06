@@ -36,6 +36,7 @@ import atexit
 import errno
 import logging
 import os
+import pwd
 import resource
 import signal
 import socket
@@ -82,7 +83,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 5, 5
+version = 0, 5, 6
 
 STDIN = 0
 STDOUT = 1
@@ -159,8 +160,6 @@ class Daemon(object):
             stdin=None,                 # redirect stdin after daemonization
             stdout=None,                # redirect stdout after daemonization
             stderr=None,                # redirect stderr after daemonization
-            initial_stdin=None          # initial stream to send to daemon's stdin
-                                        # during monitor
             ):
         self.logger = logging.getLogger('pandaemonium.' + self.__class__.__name__)
         self.prevent_core = prevent_core
@@ -186,7 +185,6 @@ class Daemon(object):
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
-        self.initial_stdin = initial_stdin
         self._redirect = False
         self._stage_completed = 0
         self.logger.info('finished __init__')
@@ -215,7 +213,6 @@ class Daemon(object):
         """
         Detach from current session.  Parent raises exception, child keeps going.
         """
-        to_daemon_stdin, from_parent = os.pipe()
         from_daemon_stdout, to_parent_out = os.pipe()
         from_daemon_stderr, to_parent_err = os.pipe()
         comms_channel = Queue()
@@ -225,20 +222,17 @@ class Daemon(object):
             self.i_am = 'parent'
             os.close(to_parent_out)
             os.close(to_parent_err)
-            os.close(from_parent)
-            self.monitor(comms_channel, to_daemon_stdin, from_daemon_stdout, from_daemon_stderr)
+            self.monitor(comms_channel, from_daemon_stdout, from_daemon_stderr)
             raise Parent
         # redirect stdout/err for rest of daemon set up
         # both activate() and start() will have already set self.i_am to 'daemon'
-        for stream, dest in ((sys.stdin, from_parent), (sys.stdout, to_parent_out), (sys.stderr, to_parent_err)):
+        for stream, dest in ((sys.stdout, to_parent_out), (sys.stderr, to_parent_err)):
             if (
                     hasattr(stream, 'fileno')
-                    and stream.fileno() in (STDIN, STDOUT, STDERR)
-                    and stream.fileno() not in self.inherit_files
+                    and stream.fileno() in (STDOUT, STDERR)
+                    #and stream.fileno() not in self.inherit_files
                 ):
                 os.dup2(dest, stream.fileno())
-        os.close(to_daemon_stdin)
-        os.close(from_parent)
         os.close(from_daemon_stdout)
         os.close(from_daemon_stderr)
         os.close(to_parent_out)
@@ -251,7 +245,7 @@ class Daemon(object):
             self.i_am = 'child'
             os._exit(os.EX_OK)
 
-    def monitor(self, comms_channel, to_daemon_stdin, from_daemon_stdout, from_daemon_stderr):
+    def monitor(self, comms_channel, from_daemon_stdout, from_daemon_stderr):
         """
         Parent gets telemetry readings from daemon
         """
@@ -262,8 +256,6 @@ class Daemon(object):
                 if not data:
                     os.close(channel)
                     break
-        if self.initial_stdin:
-            os.write(to_daemon_stdin, self.initial_stdin.encode('utf-8'))
         threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
         threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
         output = bytes()
@@ -296,7 +288,7 @@ class Daemon(object):
         """
         if self.target is None:
             raise DaemonError('nothing to do')
-        self.logger.info('running target', self.target.__name__)
+        self.logger.info('running target: %s', self.target.__name__)
         self.target(*self.args, **self.kwargs)
 
     def __set_signals(self):
@@ -337,6 +329,16 @@ class Daemon(object):
         """
         self.i_am = 'daemon'
         self.inherit_files = set(self.inherit_files or [])
+        if isinstance(self.stdin, basestring):
+            def write_to_stdin(data):
+                os.write(w, data.encode('utf-8'))
+                os.close(w)
+            r, w = os.pipe()
+            text = self.stdin
+            threading.Thread(target=write_to_stdin, args=(text, )).start()
+            r = os.fdopen(r)
+            self.stdin = r
+            self.logger.info('  stdin swap complete')
         if self.detach is None:
             if started_by_init():
                 self.logger.info('  started_by_init')
@@ -371,16 +373,20 @@ class Daemon(object):
         """
         Set uid & gid (possibly losing privilege), call os.initgroups().
         """
+        if self.init_groups:
+            self.logger.info('  calling initgroups')
+            if not INITGROUPS:
+                raise DaemonError('initgroups not supported in this version of Python')
+            target_uid = self.uid or os.geteuid()
+            target_gid = self.gid or os.getegid()
+            name = pwd.getpwuid(target_uid).pw_name
+            os.initgroups(name, target_gid)
         if self.gid is not None:
             self.logger.info('  setting gid: %s' % self.gid)
             os.setgid(self.gid)
         if self.uid is not None:
             self.logger.info('  setting uid: %s' % self.uid)
             os.setuid(self.uid)
-        if self.init_groups:
-            if not INITGROUPS:
-                raise DaemonError('initgroups not supported in this version of Python')
-            os.initgroups(pwd.getpwuid(os.geteuid()).pw_name, os.getegid())
 
     @check_stage
     def stage4(self):
@@ -389,7 +395,7 @@ class Daemon(object):
 
         Default setting allows group and world nothing.
         """
-        self.logger.info('  setting umask: %s' % self.umask)
+        self.logger.info('  setting umask: 0o%03o', self.umask)
         os.umask(self.umask)
 
     @check_stage
@@ -444,12 +450,16 @@ class Daemon(object):
         """
         if self._redirect:
             self.logger.info('  redirecting standard streams:')
-            self.logger.info('    stdin  --> %s' % self.stdin)
-            self.logger.info('    stdout --> %s' % self.stdout)
-            self.logger.info('    stderr --> %s' % self.stderr)
-            redirect(self.stdin, STDIN)
-            redirect(self.stdout, STDOUT)
-            redirect(self.stderr, STDERR)
+            if STDIN not in self.inherit_files or self.stdin is not None:
+                self.logger.info('    stdin  --> %s' % self.stdin)
+                redirect(self.stdin, STDIN)
+            if STDOUT not in self.inherit_files or self.stdout is not None:
+                self.logger.info('    stdout --> %s' % self.stdout)
+                redirect(self.stdout, STDOUT)
+            if STDERR not in self.inherit_files or self.stderr is not None:
+                self.logger.info('    stderr --> %s' % self.stderr)
+                redirect(self.stderr, STDERR)
+            self.logger.info('  done redirecting')
 
     def start(self):
         """
@@ -736,16 +746,16 @@ def close_open_files(exclude):
             raise ValueError(
                     'files to not close should be either an file descriptor, '
                     'or a file-type object, not %r (%s)' % (type(file), file))
-            for fd in range(max_files, -1, -1):
-                if fd in keep:
-                    continue
-                try:
-                    os.close(fd)
-                except OSError:
-                    exc = sys.exc_info()[1]
-                    if exc.errno == errno.EBADF:
-                        continue
-                    raise
+    for fd in range(max_files, -1, -1):
+        if fd in keep:
+            continue
+        try:
+            os.close(fd)
+        except OSError:
+            exc = sys.exc_info()[1]
+            if exc.errno == errno.EBADF:
+                continue
+            raise
 
 def prevent_core_dump():
     """
