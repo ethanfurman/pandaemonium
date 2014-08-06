@@ -263,7 +263,7 @@ class Daemon(object):
                     os.close(channel)
                     break
         if self.initial_stdin:
-            to_daemon_stdin.write(self.initial_stdin.encode('utf-8'))
+            os.write(to_daemon_stdin, self.initial_stdin.encode('utf-8'))
         threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
         threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
         output = bytes()
