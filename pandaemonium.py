@@ -159,6 +159,8 @@ class Daemon(object):
             stdin=None,                 # redirect stdin after daemonization
             stdout=None,                # redirect stdout after daemonization
             stderr=None,                # redirect stderr after daemonization
+            initial_stdin=None          # initial stream to send to daemon's stdin
+                                        # during monitor
             ):
         self.logger = logging.getLogger('pandaemonium.' + self.__class__.__name__)
         self.prevent_core = prevent_core
@@ -177,12 +179,14 @@ class Daemon(object):
         if process_ids is None:
             process_ids = os.getuid(), os.getgid()
         self.uid, self.gid = process_ids
+        self.init_groups = init_groups
         self.pid_file = pid_file
         self.inherit_files = inherit_files
         self.signal_map = signal_map
         self.stdin = stdin
         self.stdout = stdout
         self.stderr = stderr
+        self.initial_stdin = initial_stdin
         self._redirect = False
         self._stage_completed = 0
         self.logger.info('finished __init__')
@@ -211,6 +215,7 @@ class Daemon(object):
         """
         Detach from current session.  Parent raises exception, child keeps going.
         """
+        to_daemon_stdin, from_parent = os.pipe()
         from_daemon_stdout, to_parent_out = os.pipe()
         from_daemon_stderr, to_parent_err = os.pipe()
         comms_channel = Queue()
@@ -220,17 +225,20 @@ class Daemon(object):
             self.i_am = 'parent'
             os.close(to_parent_out)
             os.close(to_parent_err)
-            self.monitor(comms_channel, from_daemon_stdout, from_daemon_stderr)
+            os.close(from_parent)
+            self.monitor(comms_channel, to_daemon_stdin, from_daemon_stdout, from_daemon_stderr)
             raise Parent
         # redirect stdout/err for rest of daemon set up
         # both activate() and start() will have already set self.i_am to 'daemon'
-        for stream, dest in ((sys.stdout, to_parent_out), (sys.stderr, to_parent_err)):
+        for stream, dest in ((sys.stdin, from_parent), (sys.stdout, to_parent_out), (sys.stderr, to_parent_err)):
             if (
                     hasattr(stream, 'fileno')
-                    and stream.fileno() in (STDOUT, STDERR)
+                    and stream.fileno() in (STDIN, STDOUT, STDERR)
                     and stream.fileno() not in self.inherit_files
                 ):
                 os.dup2(dest, stream.fileno())
+        os.close(to_daemon_stdin)
+        os.close(from_parent)
         os.close(from_daemon_stdout)
         os.close(from_daemon_stderr)
         os.close(to_parent_out)
@@ -243,11 +251,9 @@ class Daemon(object):
             self.i_am = 'child'
             os._exit(os.EX_OK)
 
-    def monitor(self, comms_channel, from_daemon_stdout, from_daemon_stderr):
+    def monitor(self, comms_channel, to_daemon_stdin, from_daemon_stdout, from_daemon_stderr):
         """
         Parent gets telemetry readings from daemon
-        
-        both self._stage_completed and self.output are updated
         """
         def read_comm(name, channel):
             while True:
@@ -256,6 +262,8 @@ class Daemon(object):
                 if not data:
                     os.close(channel)
                     break
+        if self.initial_stdin:
+            to_daemon_stdin.write(self.initial_stdin.encode('utf-8'))
         threading.Thread(target=read_comm, args=('out', from_daemon_stdout)).start()
         threading.Thread(target=read_comm, args=('err', from_daemon_stderr)).start()
         output = bytes()
