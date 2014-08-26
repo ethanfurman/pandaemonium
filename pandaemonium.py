@@ -83,13 +83,15 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 5, 6
+version = 0, 5, 7
 
 STDIN = 0
 STDOUT = 1
 STDERR = 2
 
 INIT_PID = 1
+
+AUTO = 'auto'
 
 signal_map = dict(
     SIGTERM = 'sig_terminate',
@@ -145,15 +147,15 @@ class Daemon(object):
             target=None,                # function to run as daemon
             args=None,                  # args and kwargs for function
             kwargs=None,
-            detach=None,                # True means do it, False means don't,
-                                        # None means True unless started by init
+            detach=AUTO,                # True means do it, False means don't,
+                                        # AUTO means True unless started by init
                                         # or superserver
             working_directory='/',      # directory to change to
             umask=0o077,                # only allow the daemon access to its files
             prevent_core=True,          # don't write core files
-            process_ids=None,           # uid, gid to switch to (None means ask
+            process_ids=AUTO,           # uid, gid to switch to (AUTO means ask
                                         # the os who is really running things)
-            init_groups=INITGROUPS,     # default to True if present in 'os'
+            init_groups=AUTO,           # default to True if present in 'os'
             pid_file=None,              # string or actual locking file
             inherit_files=None,         # iterable of files or fds to not close
             signal_map=None,            # map of signals:functions for daemon
@@ -175,8 +177,10 @@ class Daemon(object):
         self.detach = detach
         self.working_directory = working_directory
         self.umask = umask
-        if process_ids is None:
+        if process_ids == AUTO:
             process_ids = os.getuid(), os.getgid()
+        elif process_ids is None:
+            process_ids = None, None
         self.uid, self.gid = process_ids
         self.init_groups = init_groups
         self.pid_file = pid_file
@@ -339,7 +343,7 @@ class Daemon(object):
             r = os.fdopen(r)
             self.stdin = r
             self.logger.info('  stdin swap complete')
-        if self.detach is None:
+        if self.detach == AUTO:
             if started_by_init():
                 self.logger.info('  started_by_init')
                 self.detach = False
@@ -373,7 +377,11 @@ class Daemon(object):
         """
         Set uid & gid (possibly losing privilege), call os.initgroups().
         """
-        if self.init_groups:
+        if self.init_groups != AUTO:
+            init_groups = self.init_groups
+        else:
+            init_groups = os.getuid() == 0 and INIT_GROUPS
+        if init_groups:
             self.logger.info('  calling initgroups')
             if not INITGROUPS:
                 raise DaemonError('initgroups not supported in this version of Python')
