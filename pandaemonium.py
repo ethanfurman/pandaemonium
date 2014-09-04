@@ -380,7 +380,7 @@ class Daemon(object):
         if self.init_groups != AUTO:
             init_groups = self.init_groups
         else:
-            init_groups = os.getuid() == 0 and INIT_GROUPS
+            init_groups = os.getuid() == 0 and INITGROUPS
         if init_groups:
             self.logger.info('  calling initgroups')
             if not INITGROUPS:
