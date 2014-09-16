@@ -69,7 +69,9 @@ class NullHandler(logging.Handler):
     of the library does not configure logging, the one-off warning might be
     produced; to avoid this, the library developer simply needs to instantiate
     a NullHandler and add it to the top-level logger of the library module or
-    package.  Taken from 2.7 lib.
+    package.
+    
+    Taken from 2.7 lib.
     """
     def handle(self, record):
         """Stub."""
@@ -83,7 +85,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 5, 8
+version = 0, 5, 9
 
 STDIN = 0
 STDOUT = 1
@@ -690,7 +692,7 @@ class PidLockFile(object):
         self.logger.info('with PID: %s' % pid)
         return pid
 
-
+ft_sentinel = object()
 class FileTracker(object):
     """
     useful for tracking files that are still open at time of daemonization
@@ -706,16 +708,17 @@ class FileTracker(object):
         cls._cache[name] = file
         return file
     @classmethod
-    def active(cls, name):
+    def active(cls, name, default=ft_sentinel):
         """
-        return the open file object referred to by name
-        raise an error if no such open file exists
+        return the open file object referred to by name, or None if no longer open
         """
         cls.open_files()
         try:
             return cls._cache[name]
         except KeyError:
-            raise ValueError('%s has been closed' % name)
+            if default is ft_sentinel:
+                raise ValueError('%s is not open' % name)
+            return default
     @classmethod
     def open_files(cls):
         """
