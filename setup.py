@@ -236,7 +236,7 @@ PidLockFile
 
 setup(
     name='pandaemonium',
-    version= '0.6.0',
+    version= '0.6.1',
     license='BSD License',
     description='Framework for writing daemons, with API similar to threading and multiprocessing.',
     long_description=long_desc,
