@@ -74,6 +74,12 @@ class TestPidLockFile(TestCase):
         self.assertRaises(AlreadyLocked, too_late.acquire)
         locker.release()
 
+    def test_acquire_file_locked_with_timeout(self):
+        locker = PidLockFile(self.file_name)
+        locker.seal()
+        too_late = PidLockFile(self.file_name, time_out=3)
+        self.assertRaises(AlreadyLocked, too_late.acquire)
+        locker.release()
 
 class TestDaemon(object):
     # this is not a TestCase because unittest cannot handle the daemons

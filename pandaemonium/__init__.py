@@ -559,6 +559,7 @@ class PidLockFile(object):
             time_out = self.time_out
         end_time = time.time() + time_out
         while True:
+            self.logger.debug('trying to create lock')
             try:
                 fd = os.open(
                         self.file_name,
@@ -569,12 +570,17 @@ class PidLockFile(object):
                 exc = sys.exc_info()[1]
                 if exc.errno != errno.EEXIST:
                     self.logger.error('unable to create %r', self.file_name)
-                    raise LockFailed("Unable to create %r" % self.file_name)
+                    raise LockFailed('Unable to create %r' % self.file_name)
                 elif time_out < 0:
                     self.logger.error('%s is already locked', self.file_name)
-                    raise AlreadyLocked("%s is already locked" % self.file_name)
+                    raise AlreadyLocked('%s is already locked' % self.file_name)
                 elif time.time() < end_time:
+                    self.logger.debug('lock taken, sleeping')
                     time.sleep(max(0.1, time_out/10.0))
+                else:
+                    # out of attempts
+                    self.logger.error('%s is already locked', self.file_name)
+                    raise AlreadyLocked('%s is already locked' % self.file_name)
             else:
                 self.file_obj = os.fdopen(fd, 'w')
                 break
