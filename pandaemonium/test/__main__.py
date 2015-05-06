@@ -77,7 +77,7 @@ class TestPidLockFile(TestCase):
     def test_acquire_file_locked_with_timeout(self):
         locker = PidLockFile(self.file_name)
         locker.seal()
-        too_late = PidLockFile(self.file_name, time_out=3)
+        too_late = PidLockFile(self.file_name, timeout=3)
         self.assertRaises(AlreadyLocked, too_late.acquire)
         locker.release()
 

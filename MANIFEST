@@ -1,4 +1,5 @@
 pandaemonium/__init__.py
+pandaemonium/CHANGES
 pandaemonium/README
 pandaemonium/LICENSE
 pandaemonium/test/__init__.py
@@ -8,5 +9,6 @@ pandaemonium/test/test_daemon_2
 pandaemonium/test/test_daemon_3
 pandaemonium/test/test_daemon_4
 setup.py
+CHANGES
 LICENSE
 README

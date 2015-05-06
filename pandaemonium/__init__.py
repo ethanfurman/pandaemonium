@@ -85,7 +85,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 6, 1
+version = 0, 7, 0
 
 STDIN = 0
 STDOUT = 1
@@ -514,21 +514,21 @@ class PidLockFile(object):
     Simple daemon status via a pid file.
     """
 
-    def __init__(self, file_name, time_out=-1):
+    def __init__(self, file_name, timeout=-1):
         """
-        file_name and time_out to be used for pid file.
+        file_name and timeout to be used for pid file.
         """
         self.logger = logging.getLogger('pandaemonium.PidLockFile')
         if not file_name or file_name[0] != '/':
             self.logger.error('%r is not an absolute path', file_name)
             raise LockError("%r is not an absolute path" % file_name)
         try:
-            time_out = int(time_out)
+            timeout = int(timeout)
         except Exception:
-            self.logger.error('unable to convert %r to an integer', time_out)
-            raise LockError("Unable to convert %r to an integer" % time_out)
+            self.logger.error('unable to convert %r to an integer', timeout)
+            raise LockError("Unable to convert %r to an integer" % timeout)
         self.file_name = file_name
-        self.time_out = time_out
+        self.timeout = timeout
         self.file_obj = None
 
     def __enter__(self):
@@ -545,7 +545,7 @@ class PidLockFile(object):
         """
         self.break_lock()
 
-    def acquire(self, time_out=None):
+    def acquire(self, timeout=None):
         """
         Create the file, establishing the lock, but do not write the PID.
 
@@ -555,9 +555,9 @@ class PidLockFile(object):
         if self.is_stale():
             self.logger.info('lock is stale')
             self.break_lock()
-        if time_out is None:
-            time_out = self.time_out
-        end_time = time.time() + time_out
+        if timeout is None:
+            timeout = self.timeout
+        end_time = time.time() + timeout
         while True:
             self.logger.debug('trying to create lock')
             try:
@@ -571,12 +571,12 @@ class PidLockFile(object):
                 if exc.errno != errno.EEXIST:
                     self.logger.error('unable to create %r', self.file_name)
                     raise LockFailed('Unable to create %r' % self.file_name)
-                elif time_out < 0:
+                elif timeout < 0:
                     self.logger.error('%s is already locked', self.file_name)
                     raise AlreadyLocked('%s is already locked' % self.file_name)
                 elif time.time() < end_time:
                     self.logger.debug('lock taken, sleeping')
-                    time.sleep(max(0.1, time_out/10.0))
+                    time.sleep(max(0.1, timeout/10.0))
                 else:
                     # out of attempts
                     self.logger.error('%s is already locked', self.file_name)

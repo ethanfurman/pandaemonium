@@ -1,0 +1,4 @@
+0.7.0
+=====
+
+changed 'time_out' parameter to 'timeout' to be consistent with the stdlib

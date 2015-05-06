@@ -203,18 +203,18 @@ Daemon
 PidLockFile
 -----------
 
-``PidLockFile(file_name, time_out)``
+``PidLockFile(file_name, timeout)``
 
     file_name
         full path and name of file to use for locking
 
-    time_out
+    timeout
         how long to wait before concluding that an existing held lock is not
         going to be released (default: -1, meaning conclude immediately)
 
-``PidLockFile.acquire(time_out=None)``
+``PidLockFile.acquire(timeout=None)``
 ''''''''''''''''''''''''''''''''''''''
-    attempt to capture the lock file; if time_out is `None` use the time out
+    attempt to capture the lock file; if timeout is `None` use the time out
     specified when PidLockFile was created.
 
 ``PidLockFile.seal()``
@@ -236,7 +236,7 @@ PidLockFile
 
 setup(
     name='pandaemonium',
-    version= '0.6.1',
+    version= '0.7.0',
     license='BSD License',
     description='Framework for writing daemons, with API similar to threading and multiprocessing.',
     long_description=long_desc,
