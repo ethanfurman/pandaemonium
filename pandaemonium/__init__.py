@@ -612,15 +612,15 @@ class PidLockFile(object):
             os.unlink(self.file_name)
         except OSError:
             exc = sys.exc_info()[1]
-            if exc.errno == errno.EEXIST:
+            if exc.errno == errno.ENOENT:
                 self.logger.info('%s does not exist' % self.file_name)
                 return
             self.logger.error('unable to break lock')
-            raise LockError("Unable to break lock: %d: %s" % (exc.errno, exc.message))
+            raise LockError("Unable to break lock: %s: %s" % (exc, exc.message))
         except Exception:
             exc = sys.exc_info()[1]
             self.logger.error('unable to break lock')
-            raise LockError("Unable to break lock: %s" % (exc.message, ))
+            raise LockError("Unable to break lock: %s" % (exc, ))
         self.logger.info('lock broken')
 
     def is_locked(self):
@@ -773,7 +773,7 @@ def close_open_files(exclude):
             keep.add(file.fileno())
         else:
             raise ValueError(
-                    'files to not close should be either an file descriptor, '
+                    'files to not close should be either a file descriptor, '
                     'or a file-type object, not %r (%s)' % (type(file), file))
     for fd in range(max_files, -1, -1):
         if fd in keep:
