@@ -38,6 +38,8 @@ class TestFileTracker(TestCase):
         self.assertTrue(self.file_names[0] in open_files)
         self.assertFalse(self.file_names[1] in open_files)
         self.assertTrue(self.file_names[2] in open_files)
+        files[0].close()
+        files[2].close()
 
 
 class TestPidLockFile(TestCase):
@@ -61,11 +63,13 @@ class TestPidLockFile(TestCase):
         "file doesn't exist"
         plf = PidLockFile(self.file_name)
         plf.acquire()
+        plf.release()
 
     def test_acquire_file_stale(self):
         open(self.file_name, 'w').close()
         plf = PidLockFile(self.file_name)
         plf.acquire()
+        plf.release()
 
     def test_acquire_file_locked(self):
         locker = PidLockFile(self.file_name)
@@ -89,7 +93,6 @@ class TestDaemon(object):
     messages = []
 
     def test_target(self):
-        print('.')
         def leave_message():
             print("Okay, I made it!  G'bye!")
         r, w = os.pipe()
@@ -97,13 +100,14 @@ class TestDaemon(object):
         d.start()
         passed = os.read(r, 1024).decode('ascii') == "Okay, I made it!  G'bye!\n"
         if passed:
+            print('.')
             self.passed += 1
         else:
+            print('F')
             self.failed += 1
         self.messages.append('test_target: %s' % (['failed', 'passed'][passed], ))
 
     def test_run(self):
-        print('.')
         class MyDaemon(Daemon):
             def run(self):
                 print("Running like the wind!")
@@ -113,13 +117,14 @@ class TestDaemon(object):
         d.start()
         passed = os.read(r, 1024).decode('ascii') == "Running like the wind!\n"
         if passed:
+            print('.')
             self.passed += 1
         else:
+            print('F')
             self.failed += 1
         self.messages.append('test_run: %s' % (['failed', 'passed'][passed], ))
 
     def test_failure(self):
-        print('.')
         class DeadDaemon(Daemon):
             def run():
                 print("wow! it happenned!")
@@ -127,10 +132,15 @@ class TestDaemon(object):
             def stage5(self):
                 1 / 0
         d = DeadDaemon()
-        d.start()
+        try:
+            d.start()
+        except DaemonError:
+            pass
         if 'ZeroDivisionError' in d.error:
             self.passed += 1
+            print('.')
         else:
+            print('F')
             self.failed += 1
 
     def run(self):
