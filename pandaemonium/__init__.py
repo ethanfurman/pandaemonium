@@ -607,6 +607,9 @@ class PidLockFile(object):
         """
         Remove the file, thus breaking the lock.
         """
+        if self.file_obj is not None:
+            self.file_obj.close()
+            self.file_obj = None
         try:
             self.logger.info('breaking lock')
             os.unlink(self.file_name)
