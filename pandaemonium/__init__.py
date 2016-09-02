@@ -70,7 +70,7 @@ class NullHandler(logging.Handler):
     produced; to avoid this, the library developer simply needs to instantiate
     a NullHandler and add it to the top-level logger of the library module or
     package.
-    
+
     Taken from 2.7 lib.
     """
     def handle(self, record):
@@ -287,7 +287,7 @@ class Daemon(object):
             print(self.error)
             raise SystemError('Daemon reported error')
         raise SystemExit
-        
+
     def run(self):
         """
         Either override this method, or pass target function to __init__.
@@ -514,7 +514,7 @@ class PidLockFile(object):
     Simple daemon status via a pid file.
     """
 
-    def __init__(self, file_name, timeout=-1):
+    def __init__(self, file_name, timeout=-1, reentrant=False):
         """
         file_name and timeout to be used for pid file.
         """
@@ -530,20 +530,30 @@ class PidLockFile(object):
         self.file_name = file_name
         self.timeout = timeout
         self.file_obj = None
+        self.reentrant = reentrant
+        self.lock_count = 0
 
     def __enter__(self):
         """
         Acquire and seal the lock.
         """
-        self.acquire()
-        self.seal()
+        if self.lock_count and not self.reentrant:
+            raise AlreadyLocked(
+                    'Tried to lock already locked file and reentrant is False'
+                    )
+        if not self.lock_count:
+            self.acquire()
+            self.seal()
+        self.lock_count += 1
         return self
 
     def __exit__(self, *args):
         """
         Release lock.
         """
-        self.break_lock()
+        self.lock_count -= 1
+        if not self.lock_count:
+            self.break_lock()
 
     def acquire(self, timeout=None):
         """
