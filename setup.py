@@ -37,7 +37,7 @@ simple usage
     # most likely means the daemon died due to an exception
     #
     # both can be parsed, examined, ignored, etc.
-    
+
 
 or:
 
@@ -234,7 +234,11 @@ PidLockFile
 [3] https://docs.python.org/2/library/multiprocessing.html#multiprocessing.Process
 """
 
-setup(
+py2_only = ()
+py3_only = ()
+make = []
+
+data = dict(
     name='pandaemonium',
     version= '0.7.0',
     license='BSD License',
@@ -252,9 +256,13 @@ setup(
         'Natural Language :: English',
         'Operating System :: POSIX',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.3',
+        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.5',
         'Topic :: Software Development',
         ],
     )
+
+if __name__ == '__main__':
+    setup(**data)
