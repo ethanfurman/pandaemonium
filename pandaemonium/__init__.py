@@ -300,7 +300,7 @@ class Daemon(object):
         Map terminate and job control signals, and whatever user supplied.
         """
         self.set_signals()
-        handler_map = {}
+        self.handler_map = hm = {}
         for sig, func in self.signal_map.items():
             if not isinstance(sig, baseint):
                 raise DaemonError("%r is not a valid signal" % sig)
@@ -308,6 +308,7 @@ class Daemon(object):
                 func = signal.SIG_IGN
             elif isinstance(func, basestring):
                 func = getattr(self, func)
+            hm[sig] = func
             signal.signal(sig, func)
 
     def set_signals(self):
