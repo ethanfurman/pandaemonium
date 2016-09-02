@@ -236,7 +236,6 @@ class Daemon(object):
             if (
                     hasattr(stream, 'fileno')
                     and stream.fileno() in (STDOUT, STDERR)
-                    #and stream.fileno() not in self.inherit_files
                 ):
                 os.dup2(dest, stream.fileno())
         os.close(from_daemon_stdout)
@@ -282,10 +281,9 @@ class Daemon(object):
         """
         print output and error attributes, and quit
         """
+        # .start() now prints automatically on error, but this is still useful
+        # for printing normal output when no error occurs.
         print(self.output)
-        if self.error:
-            print(self.error)
-            raise SystemError('Daemon reported error')
         raise SystemExit
 
     def run(self):
@@ -485,6 +483,9 @@ class Daemon(object):
             self.run()
             raise SystemExit
         except Parent:
+            if self.error:
+                print(self.output)
+                raise DaemonError('\n' + self.error)
             return
 
 
