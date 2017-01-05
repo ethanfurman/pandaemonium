@@ -1,3 +1,12 @@
+0.7.1
+=====
+
+allow reentrancy in PidLockFile via the context manager protocol
+automatically print error report if daemon fails during activation
+fix break_lock error reporting, etc.
+save last read pid as attribute of PidLockFile
+
+
 0.7.0
 =====
 
