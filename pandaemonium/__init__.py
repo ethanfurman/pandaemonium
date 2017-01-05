@@ -43,7 +43,6 @@ import socket
 import sys
 import threading
 import time
-import traceback
 
 try:
     from Queue import Queue
@@ -85,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 0
+version = 0, 7, 1, 1
 
 STDIN = 0
 STDOUT = 1
@@ -534,6 +533,7 @@ class PidLockFile(object):
         self.file_obj = None
         self.reentrant = reentrant
         self.lock_count = 0
+        self.stored_pid = None
 
     def __enter__(self):
         """
@@ -613,10 +613,12 @@ class PidLockFile(object):
         try:
             self.logger.info('breaking lock')
             os.unlink(self.file_name)
+            self.stored_pid = None
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ENOENT:
                 self.logger.info('%s does not exist' % self.file_name)
+                self.stored_pid = None
                 return
             self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %s: %s" % (exc, exc.message))
@@ -675,6 +677,7 @@ class PidLockFile(object):
         if self.file_obj is not None:
             # we are in between acquiring and sealing the lock
             self.logger.info('our lock, but not yet sealed, so no PID')
+            self.stored_pid = None
             return None
         try:
             pid_file = open(self.file_name)
@@ -684,6 +687,7 @@ class PidLockFile(object):
         except Exception:
             pid = None
         self.logger.info('pid is %s' % pid)
+        self.stored_pid = None
         return pid
 
     def release(self):
@@ -711,6 +715,7 @@ class PidLockFile(object):
         self.file_obj.close()
         self.file_obj = None
         self.logger.info('with PID: %s' % pid)
+        self.stored_pid = pid
         return pid
 
 ft_sentinel = object()
