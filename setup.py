@@ -1,6 +1,4 @@
 from distutils.core import setup
-from glob import glob
-import os
 
 long_desc = """\
 pandaemonium
@@ -245,7 +243,7 @@ data = dict(
     description='Framework for writing daemons, with API similar to threading and multiprocessing.',
     long_description=long_desc,
     packages=['pandaemonium'],
-    package_data={'pandaemonium': ['README', 'LICENSE']},
+    package_data={'pandaemonium': ['CHANGES', 'LICENSE']},
     author='Ethan Furman',
     author_email='ethan@stoneleaf.us',
     url="https://bitbucket.org/stoneleaf/pandaemonium",
