@@ -1,13 +1,10 @@
-from pandaemonium import Daemon, DaemonError, Parent, check_stage
-from pandaemonium import LockError, NotMyLock, LockFailed, AlreadyLocked, PidLockFile
-from pandaemonium import FileTracker
+from pandaemonium import *
 
 FileTracker.install()
 
 import os
 import sys
 import tempfile
-import time
 from unittest import TestCase, main
 
 
@@ -83,6 +80,21 @@ class TestPidLockFile(TestCase):
         locker.seal()
         too_late = PidLockFile(self.file_name, timeout=3)
         self.assertRaises(AlreadyLocked, too_late.acquire)
+        locker.release()
+
+    def test_context_reentrant(self):
+        locker = PidLockFile(self.file_name, reentrant=True)
+        locker.seal()
+        with locker:
+            pass
+        locker.release()
+
+    def test_context_not_reentrant(self):
+        locker = PidLockFile(self.file_name)
+        locker.seal()
+        with self.assertRaises(AlreadyLocked):
+            with locker:
+                pass
         locker.release()
 
 class TestDaemon(object):

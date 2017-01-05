@@ -534,6 +534,7 @@ class PidLockFile(object):
         self.reentrant = reentrant
         self.lock_count = 0
         self.stored_pid = None
+        self.my_pid = None
 
     def __enter__(self):
         """
@@ -544,9 +545,9 @@ class PidLockFile(object):
                     'Tried to lock already locked file and reentrant is False'
                     )
         if not self.lock_count:
-            self.acquire()
             self.seal()
-        self.lock_count += 1
+        else:
+            self.lock_count += 1
         return self
 
     def __exit__(self, *args):
@@ -560,9 +561,18 @@ class PidLockFile(object):
     def acquire(self, timeout=None):
         """
         Create the file, establishing the lock, but do not write the PID.
-
-        Check first for an existing, stale pid file.
         """
+        if self.my_pid is not None:
+            if self.my_pid != self.read_pid():
+                # something else stole our lock
+                raise LockError('lock has been stolen (possibly by %d)' % self.stored_pid)
+            elif not self.reentrant:
+                raise AlreadyLocked('this lock is already sealed and is not reentrant')
+            else:
+                raise LockError('reentrancy is only supported via the context manager protocol')
+        elif self.file_obj is not None:
+            # lock has already been acquired but not sealed
+            raise LockError('lock is already acquired, just not sealed')
         self.logger.info('acquiring lock')
         if self.is_stale():
             self.logger.info('lock is stale')
@@ -601,7 +611,7 @@ class PidLockFile(object):
         """
         Return True if this file is my lock.
         """
-        return self.file_obj is not None or self.read_pid == os.getpid()
+        return self.file_obj is not None or self.read_pid() == os.getpid()
 
     def break_lock(self):
         """
@@ -618,7 +628,9 @@ class PidLockFile(object):
             exc = sys.exc_info()[1]
             if exc.errno == errno.ENOENT:
                 self.logger.info('%s does not exist' % self.file_name)
+                self.my_pid = None
                 self.stored_pid = None
+                self.lock_count = 0
                 return
             self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %s: %s" % (exc, exc.message))
@@ -626,6 +638,9 @@ class PidLockFile(object):
             exc = sys.exc_info()[1]
             self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %s" % (exc, ))
+        self.my_pid = None
+        self.stored_pid = None
+        self.lock_count = 0
         self.logger.info('lock broken')
 
     def is_locked(self):
@@ -696,7 +711,9 @@ class PidLockFile(object):
         """
         if self.file_obj is None:
             pid = self.read_pid()
-            if pid != os.getpid():
+            if pid is None:
+                raise LockError('lock is not held by anyone')
+            elif pid != os.getpid():
                 self.logger.error('lock is owned by pid: %s', pid)
                 raise NotMyLock('Lock is owned by pid: %s' % pid)
         self.break_lock()
@@ -707,15 +724,24 @@ class PidLockFile(object):
 
         This should only be called after becoming a daemon.
         """
+        if self.read_pid() is not None and self.stored_pid == self.my_pid:
+            # already sealed
+            if self.reentrant:
+                raise LockError('reentrancy is only supported via the context manager protocol')
+            else:
+                raise LockError('this lock is already sealed and is not reentrant')
         if self.file_obj is None:
             self.acquire()
         self.logger.info('sealing lock')
         pid = os.getpid()
+        self.my_pid = pid
         self.file_obj.write("%s\n" % pid)
         self.file_obj.close()
         self.file_obj = None
         self.logger.info('with PID: %s' % pid)
-        self.stored_pid = pid
+        if self.read_pid() != pid:
+            raise LockError('lock has been hijacked')
+        self.lock_count = 1
         return pid
 
 ft_sentinel = object()
