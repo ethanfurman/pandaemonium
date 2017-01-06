@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 1
+version = 0, 7, 2, 1
 
 STDIN = 0
 STDOUT = 1
@@ -702,7 +702,7 @@ class PidLockFile(object):
         except Exception:
             pid = None
         self.logger.info('pid is %s' % pid)
-        self.stored_pid = None
+        self.stored_pid = pid
         return pid
 
     def release(self):
