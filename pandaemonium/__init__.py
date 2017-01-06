@@ -626,29 +626,22 @@ class PidLockFile(object):
         if self.file_obj is not None:
             self.file_obj.close()
             self.file_obj = None
+        self.my_pid = None
+        self.stored_pid = None
+        self.lock_count = 0
         try:
-            self.logger.info('breaking lock')
+            self.logger.info('removing lock')
             os.unlink(self.file_name)
             self.stored_pid = None
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ENOENT:
-                self.logger.info('%s does not exist' % self.file_name)
-                self.my_pid = None
-                self.stored_pid = None
-                self.lock_count = 0
-                return
-
-            self.logger.error('unable to break lock')
-            raise LockError("Unable to break lock: %s: %s" % (exc, exc.message))
+                self.logger.warning('unable to remove file %s -> does not exist', self.file_name)
+            if exc.errno == errno.EACCES:
+                self.logger.warning('unable to remove file %s -> permission denied', self.file_name)
         except Exception:
             exc = sys.exc_info()[1]
-            self.logger.error('unable to break lock')
-            raise LockError("Unable to break lock: %s" % (exc, ))
-        self.my_pid = None
-        self.stored_pid = None
-        self.lock_count = 0
-        self.logger.info('lock broken')
+            self.logger.exception('unable to break lock -> %s', str(exc))
 
     def is_locked(self):
         """
@@ -733,7 +726,7 @@ class PidLockFile(object):
             # nope, try to log useful error
             if self.stored_pid is not None:
                 # file exists and has another PID in it
-                logger.warning('%r has been hijacked by process %d', self.file_name, self.stored_pid)
+                logger.warning('%r has been hijacked by process -> %d', self.file_name, self.stored_pid)
             elif os.exists(self.file_name):
                 # file exists but is empty
                 logger.warning('%r has been hijacked by unknown process', self.file_name)
