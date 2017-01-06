@@ -5,8 +5,13 @@ FileTracker.install()
 import os
 import sys
 import tempfile
-from unittest import TestCase, main
+import unittest
 
+class TestCase(unittest.TestCase):
+    try:
+        assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
+    except NameError:
+        pass
 
 class TestFileTracker(TestCase):
 
@@ -63,12 +68,14 @@ class TestPidLockFile(TestCase):
         plf.release()
 
     def test_acquire_file_stale(self):
+        "file exists but is empty"
         open(self.file_name, 'w').close()
         plf = PidLockFile(self.file_name)
         plf.acquire()
         plf.release()
 
     def test_acquire_file_locked(self):
+        "file exists and has active PID"
         locker = PidLockFile(self.file_name)
         locker.seal()
         too_late = PidLockFile(self.file_name)
@@ -76,6 +83,7 @@ class TestPidLockFile(TestCase):
         locker.release()
 
     def test_acquire_file_locked_with_timeout(self):
+        "file exists and has active PID"
         locker = PidLockFile(self.file_name)
         locker.seal()
         too_late = PidLockFile(self.file_name, timeout=3)
@@ -83,16 +91,26 @@ class TestPidLockFile(TestCase):
         locker.release()
 
     def test_context_reentrant(self):
+        "lock is reentrant as context manager"
         locker = PidLockFile(self.file_name, reentrant=True)
         locker.seal()
         with locker:
             pass
         locker.release()
 
+    def test_context_not_reentrant_without_context_manager(self):
+        "lock is not reentrant outside of context manager"
+        locker = PidLockFile(self.file_name, reentrant=True)
+        locker.seal()
+        with self.assertRaisesRegex(LockError, "context manager"):
+            locker.seal()
+        locker.release()
+
     def test_context_not_reentrant(self):
+        "lock is not reentrant without flag"
         locker = PidLockFile(self.file_name)
         locker.seal()
-        with self.assertRaises(AlreadyLocked):
+        with self.assertRaisesRegex(AlreadyLocked, 'is not reentrant'):
             with locker:
                 pass
         locker.release()
@@ -171,4 +189,4 @@ class TestDaemon(object):
 
 if __name__ == '__main__':
     TestDaemon().run()
-    main()
+    unittest.main()
