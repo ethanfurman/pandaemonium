@@ -504,9 +504,15 @@ class LockFailed(LockError):
     Unable to lock file.
     """
 
-class AlreadyLocked(LockFailed):
+class AlreadyLocked(LockError):
     """
     Lock has already been obtained.
+    """
+
+
+class LockNotReentrant(AlreadyLocked):
+    """
+    Lock is sealed and not reentrant.
     """
 
 
@@ -522,18 +528,20 @@ class PidLockFile(object):
         self.logger = logging.getLogger('pandaemonium.PidLockFile')
         if not file_name or file_name[0] != '/':
             self.logger.error('%r is not an absolute path', file_name)
-            raise LockError("%r is not an absolute path" % file_name)
+            raise ValueError("%r is not an absolute path" % file_name)
         try:
             timeout = int(timeout)
         except Exception:
             self.logger.error('unable to convert %r to an integer', timeout)
-            raise LockError("Unable to convert %r to an integer" % timeout)
+            raise ValueError("Unable to convert %r to an integer" % timeout)
         self.file_name = file_name
         self.timeout = timeout
         self.file_obj = None
         self.reentrant = reentrant
         self.lock_count = 0
+        # last pid read from file
         self.stored_pid = None
+        # pid used to lock file
         self.my_pid = None
 
     def __enter__(self):
@@ -541,9 +549,7 @@ class PidLockFile(object):
         Acquire and seal the lock.
         """
         if self.lock_count and not self.reentrant:
-            raise AlreadyLocked(
-                    'Tried to lock already locked file and reentrant is False'
-                    )
+            raise LockNotReentrant('this lock is already sealed and is not reentrant')
         if not self.lock_count:
             self.seal()
         else:
@@ -567,9 +573,9 @@ class PidLockFile(object):
                 # something else stole our lock
                 raise LockError('lock has been stolen (possibly by %d)' % self.stored_pid)
             elif not self.reentrant:
-                raise AlreadyLocked('this lock is already sealed and is not reentrant')
+                raise LockNotReentrant('this lock is already sealed and is not reentrant')
             else:
-                raise LockError('reentrancy is only supported via the context manager protocol')
+                raise LockNotReentrant('reentrancy is only supported via the context manager protocol')
         elif self.file_obj is not None:
             # lock has already been acquired but not sealed
             raise LockError('lock is already acquired, just not sealed')
@@ -632,6 +638,7 @@ class PidLockFile(object):
                 self.stored_pid = None
                 self.lock_count = 0
                 return
+
             self.logger.error('unable to break lock')
             raise LockError("Unable to break lock: %s: %s" % (exc, exc.message))
         except Exception:
@@ -709,20 +716,38 @@ class PidLockFile(object):
         """
         delete the file/lock if it is ours
         """
-        if self.file_obj is None:
-            pid = self.read_pid()
-            if pid is None:
-                raise LockError('lock is not held by anyone')
-            elif pid != os.getpid():
-                self.logger.error('lock is owned by pid: %s', pid)
-                raise NotMyLock('Lock is owned by pid: %s' % pid)
-        self.break_lock()
+        # release if we have the file open, or if we have sealed the lock and it
+        # is still ours
+        #
+        # first check that we should have a seal
+        # then check that file matches our expectations
+        # then remove file
+        if self.file_obj is not None:
+            self.break_lock()
+        elif self.my_pid is not None:
+            # we should have the lock -- do we?
+            if self.read_pid() == self.my_pid:
+                self.break_lock()
+                return
 
-    def seal(self):
+            # nope, try to log useful error
+            if self.stored_pid is not None:
+                # file exists and has another PID in it
+                logger.warning('%r has been hijacked by process %d', self.file_name, self.stored_pid)
+            elif os.exists(self.file_name):
+                # file exists but is empty
+                logger.warning('%r has been hijacked by unknown process', self.file_name)
+            else:
+                # file does not exist
+                logger.warning('%r has been removed by unknown process', self.file_name)
+        else:
+            raise LockError('attempt to release unowned lock')
+
+    def seal(self, pid=None):
         """
-        Write our PID to the file lock, and close the file.
+        Write PID to the file lock, and close the file.  Defaults to current PID.
 
-        This should only be called after becoming a daemon.
+        This should only be called after becoming a daemon if using default PID.
         """
         if self.read_pid() is not None and self.stored_pid == self.my_pid:
             # already sealed
@@ -733,7 +758,7 @@ class PidLockFile(object):
         if self.file_obj is None:
             self.acquire()
         self.logger.info('sealing lock')
-        pid = os.getpid()
+        pid = pid if pid is not None else os.getpid()
         self.my_pid = pid
         self.file_obj.write("%s\n" % pid)
         self.file_obj.close()
