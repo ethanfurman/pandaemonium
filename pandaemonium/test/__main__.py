@@ -5,13 +5,12 @@ FileTracker.install()
 import os
 import sys
 import tempfile
-import unittest
+from unittest import TestCase, main
 
-class TestCase(unittest.TestCase):
-    try:
-        assertRaisesRegex = unittest.TestCase.assertRaisesRegexp
-    except NameError:
-        pass
+try:
+    TestCase.assertRaisesRegex
+except AttributeError:
+    TestCase.assertRaisesRegex = TestCase.assertRaisesRegexp
 
 class TestFileTracker(TestCase):
 
@@ -189,4 +188,4 @@ class TestDaemon(object):
 
 if __name__ == '__main__':
     TestDaemon().run()
-    unittest.main()
+    main()
