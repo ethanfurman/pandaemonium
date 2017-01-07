@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 2, 1
+version = 0, 7, 2
 
 STDIN = 0
 STDOUT = 1
