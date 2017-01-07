@@ -1,3 +1,11 @@
+0.7.2
+=====
+
+most logging is now debug level
+break_lock always succeeds, may log a warning
+only release owned locks
+
+
 0.7.1
 =====
 
