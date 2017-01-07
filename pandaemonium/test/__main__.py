@@ -1,3 +1,4 @@
+from __future__ import print_function
 from pandaemonium import *
 
 FileTracker.install()
@@ -129,12 +130,19 @@ class TestDaemon(object):
         d.start()
         passed = os.read(r, 1024).decode('ascii') == "Okay, I made it!  G'bye!\n"
         if passed:
-            print('.')
             self.passed += 1
+            msg = self.success
         else:
-            print('F')
             self.failed += 1
-        self.messages.append('test_target: %s' % (['failed', 'passed'][passed], ))
+            msg = self.failure
+        if verbose:
+            print('test_target: ', end='')
+            if passed:
+                print(self.success, end='')
+            else:
+                print(self.failure, end='')
+        else:
+            self.messages.append(msg)
 
     def test_run(self):
         class MyDaemon(Daemon):
@@ -146,12 +154,19 @@ class TestDaemon(object):
         d.start()
         passed = os.read(r, 1024).decode('ascii') == "Running like the wind!\n"
         if passed:
-            print('.')
             self.passed += 1
+            msg = self.success
         else:
-            print('F')
             self.failed += 1
-        self.messages.append('test_run: %s' % (['failed', 'passed'][passed], ))
+            msg = self.failure
+        if verbose:
+            print('test_run: ', end='')
+            if passed:
+                print(self.success, end='')
+            else:
+                print(self.failure, end='')
+        else:
+            self.messages.append(msg)
 
     def test_failure(self):
         class DeadDaemon(Daemon):
@@ -165,21 +180,62 @@ class TestDaemon(object):
             d.start()
         except DaemonError:
             pass
-        if 'ZeroDivisionError' in d.error:
+        if verbose:
+            print('test_failure: ', end='')
+        passed =  'ZeroDivisionError' in d.error
+        if passed:
             self.passed += 1
-            print('.')
+            msg = self.success
         else:
-            print('F')
             self.failed += 1
+            msg = self.failure
+        if verbose:
+            if passed:
+                print(self.success, end='')
+            else:
+                print(self.failure, end='')
+        else:
+            self.messages.append(msg)
+
+    def test_pid_lock(self):
+        def leave_message():
+            print("pid file must have worked!!")
+        r, w = os.pipe()
+        d = Daemon(target=leave_message, stdout=w, pid_file='/tmp/test_daemon.pid')
+        try:
+            d.start()
+        except Exception:
+            passed = False
+        else:
+            passed = os.read(r, 1024).decode('ascii') == "pid file must have worked!!\n"
+        if passed:
+            self.passed += 1
+            msg = self.success
+        else:
+            self.failed += 1
+            msg = self.failure
+        if verbose:
+            print('test_pid_lock: ', end='')
+            if passed:
+                print(self.success, end='')
+            else:
+                print(self.failure, end='')
+        else:
+            self.messages.append(msg)
 
     def run(self):
+        if verbose:
+            self.success, self.failure, self.error = 'ok\n', 'fail\n', 'error\n'
+        else:
+            self.success, self.failure, self.error = '.', 'F', 'E'
         self.test_target()
         self.test_run()
         self.test_failure()
-        if '-v' in sys.argv:
-            print('\n'.join(self.messages))
+        self.test_pid_lock()
+        if self.messages:
+            print(''.join(self.messages))
         print('----------------------------------------------------------------------')
-        print('ran %d tests for Daemon\n' % (self.passed + self.failed))
+        print('Ran %d tests for Daemon\n' % (self.passed + self.failed))
         if self.failed:
             print('failed: %d\n' % self.failed)
         else:
@@ -187,5 +243,6 @@ class TestDaemon(object):
 
 
 if __name__ == '__main__':
+    verbose = '-v' in sys.argv
     TestDaemon().run()
     main()
