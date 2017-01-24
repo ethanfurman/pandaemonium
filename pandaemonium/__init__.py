@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 2
+version = 0, 7, 3, 1
 
 STDIN = 0
 STDOUT = 1
@@ -734,7 +734,7 @@ class PidLockFile(object):
             if self.stored_pid is not None:
                 # file exists and has another PID in it
                 self._logger.warning('%s: hijacked by process <%d>', self.file_name, self.stored_pid)
-            elif os.exists(self.file_name):
+            elif os.path.exists(self.file_name):
                 # file exists but is empty
                 self._logger.warning('%s: hijacked by unknown process', self.file_name)
             else:
