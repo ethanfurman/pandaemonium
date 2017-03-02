@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 3
+version = 0, 7, 4, 1
 
 STDIN = 0
 STDOUT = 1
@@ -165,7 +165,7 @@ class Daemon(object):
             stderr=None,                # redirect stderr after daemonization
             ):
         self._logger = logging.getLogger('pandaemonium.' + self.__class__.__name__)
-        self._logger.info('creating daemon')
+        self._logger.debug('creating daemon')
         self.prevent_core = prevent_core
         if prevent_core:
             prevent_core_dump()
@@ -474,7 +474,7 @@ class Daemon(object):
         """
         Enter daemon mode and call target (if it exists).
         """
-        self._logger.info('calling start')
+        self._logger.debug('calling start')
         if self._stage_completed == 10:
             raise DaemonError("daemon already started/activated")
         try:
@@ -532,7 +532,7 @@ class PidLockFile(object):
         file_name and timeout to be used for pid file.
         """
         self._logger = logging.getLogger('pandaemonium.PidLockFile')
-        self._logger.info('creating lock for %s', file_name)
+        self._logger.debug('creating lock for %s', file_name)
         if not file_name or file_name[0] != '/':
             raise LockError("%r is not an absolute path" % file_name)
         self.file_name = file_name
@@ -549,7 +549,7 @@ class PidLockFile(object):
         """
         Acquire and seal the lock.
         """
-        self._logger.info('%s: entering lock (current count: %d)', self.file_name, self._lock_count)
+        self._logger.debug('%s: entering lock (current count: %d)', self.file_name, self._lock_count)
         if self._lock_count and not self.reentrant:
             raise LockNotReentrant('this lock is already sealed and is not reentrant')
         if not self._lock_count:
@@ -562,7 +562,7 @@ class PidLockFile(object):
         """
         Release lock.
         """
-        self._logger.info('%s: exiting lock (current count: %d)', self.file_name, self._lock_count)
+        self._logger.debug('%s: exiting lock (current count: %d)', self.file_name, self._lock_count)
         if self._lock_count > 1:
             self._lock_count -= 1
         elif self._lock_count == 1:
@@ -574,7 +574,7 @@ class PidLockFile(object):
         """
         Create the file, establishing the lock, but do not write the PID.
         """
-        self._logger.info('%s: acquiring lock', self.file_name)
+        self._logger.debug('%s: acquiring lock', self.file_name)
         if self.my_pid is not None:
             if self.my_pid != self.read_pid():
                 # something else stole our lock
@@ -626,7 +626,7 @@ class PidLockFile(object):
         """
         Remove the file, thus breaking the lock.
         """
-        self._logger.info('removing lock')
+        self._logger.debug('removing lock')
         if self._file_obj is not None:
             self._file_obj.close()
             self._file_obj = None
@@ -718,7 +718,7 @@ class PidLockFile(object):
         # first check that we should have a seal
         # then check that file matches our expectations
         # then remove file
-        self._logger.info('%s: releasing lock', self.file_name)
+        self._logger.debug('%s: releasing lock', self.file_name)
         if self._file_obj is not None:
             self.break_lock()
         elif self.my_pid is not None:
@@ -819,7 +819,7 @@ class FileTracker(object):
                 __builtins__['open'] = cls()
             else:
                 __builtins__.open = cls()
-            cls._logger.info('FileTracker active')
+            cls._logger.debug('FileTracker active')
 
 
 def close_open_files(exclude):
