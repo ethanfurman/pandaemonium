@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 4
+version = 0, 7, 5, 1
 
 STDIN = 0
 STDOUT = 1
@@ -113,11 +113,11 @@ def check_stage(func):
         first = self._stage_completed + 1
         stage = int(func.__name__[-1])
         if self._stage_completed >= stage or self.i_am == 'parent':
-            raise DaemonError("Attempted to run stage %d twice" % stage)
+            raise DaemonError("Attempted to run stage %s twice" % stage)
         for i in range(first, stage):
-            next_stage = getattr(self, 'stage%d' % i)
+            next_stage = getattr(self, 'stage%s' % i)
             next_stage()
-        self._logger.debug('stage %d', stage)
+        self._logger.debug('stage %s', stage)
         func(self)
         self._stage_completed = stage
     wrapper.__name__ = func.__name__
@@ -549,7 +549,7 @@ class PidLockFile(object):
         """
         Acquire and seal the lock.
         """
-        self._logger.debug('%s: entering lock (current count: %d)', self.file_name, self._lock_count)
+        self._logger.debug('%s: entering lock (current count: %s)', self.file_name, self._lock_count)
         if self._lock_count and not self.reentrant:
             raise LockNotReentrant('this lock is already sealed and is not reentrant')
         if not self._lock_count:
@@ -562,7 +562,7 @@ class PidLockFile(object):
         """
         Release lock.
         """
-        self._logger.debug('%s: exiting lock (current count: %d)', self.file_name, self._lock_count)
+        self._logger.debug('%s: exiting lock (current count: %s)', self.file_name, self._lock_count)
         if self._lock_count > 1:
             self._lock_count -= 1
         elif self._lock_count == 1:
@@ -578,7 +578,7 @@ class PidLockFile(object):
         if self.my_pid is not None:
             if self.my_pid != self.read_pid():
                 # something else stole our lock
-                raise LockError('lock has been stolen (possibly by %d)' % self.stored_pid)
+                raise LockError('lock has been stolen (possibly by %s)' % self.stored_pid)
             elif not self.reentrant:
                 raise LockNotReentrant('this lock is already sealed and is not reentrant')
             else:
@@ -684,10 +684,10 @@ class PidLockFile(object):
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ESRCH:
-                self._logger.debug("%s: process <%d> is dead", self.file_name, pid)
+                self._logger.debug("%s: process <%s> is dead", self.file_name, pid)
                 return True
             self._logger.exception('%s: unhandled exception while checking for stale lock', self.file_name)
-        self._logger.debug("%s: process <%d> is active", self.file_name, pid)
+        self._logger.debug("%s: process <%s> is active", self.file_name, pid)
         return False
 
     def read_pid(self):
@@ -704,7 +704,7 @@ class PidLockFile(object):
             pid = int(pid.split('\n')[0])
         except Exception:
             pid = None
-        self._logger.debug('%s: stored pid is <%d>', self.file_name, pid)
+        self._logger.debug('%s: stored pid is <%s>', self.file_name, pid)
         self.stored_pid = pid
         return pid
 
@@ -733,7 +733,7 @@ class PidLockFile(object):
             # nope, try to log useful error
             if self.stored_pid is not None:
                 # file exists and has another PID in it
-                self._logger.warning('%s: hijacked by process <%d>', self.file_name, self.stored_pid)
+                self._logger.warning('%s: hijacked by process <%s>', self.file_name, self.stored_pid)
             elif os.path.exists(self.file_name):
                 # file exists but is empty
                 self._logger.warning('%s: hijacked by unknown process', self.file_name)
@@ -750,7 +750,7 @@ class PidLockFile(object):
         This should only be called after becoming a daemon if using default PID.
         """
         pid = pid if pid is not None else os.getpid()
-        self._logger.info('%s: sealing lock with <%d>', self.file_name, pid)
+        self._logger.info('%s: sealing lock with <%s>', self.file_name, pid)
         if self.read_pid() is not None and self.stored_pid == self.my_pid:
             # already sealed
             if self.reentrant:
