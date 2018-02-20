@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 7, 5
+version = 0, 7, 6, 1
 
 STDIN = 0
 STDOUT = 1
@@ -544,6 +544,7 @@ class PidLockFile(object):
         self.stored_pid = None
         # pid used to lock file
         self.my_pid = None
+        self.outside_lock = False
 
     def __enter__(self):
         """
@@ -586,6 +587,12 @@ class PidLockFile(object):
         elif self._file_obj is not None:
             # lock has already been acquired but not sealed
             raise LockError('lock is already acquired, just not sealed')
+        elif os.getpid() == self.read_pid():
+            # third-party lock
+            self._logger.debug('third-party lock detected')
+            self.outside_lock = True
+            self._file_obj = _dummy_file
+            return
         if self.is_stale():
             self._logger.debug('lock is stale')
             self.break_lock()
@@ -633,9 +640,12 @@ class PidLockFile(object):
         self.my_pid = None
         self.stored_pid = None
         self._lock_count = 0
+        if self.outside_lock:
+            self._logger.debug('third-party lock, removing reference, not removing file')
+            self.outside_lock = False
+            return
         try:
             os.unlink(self.file_name)
-            self.stored_pid = None
         except OSError:
             exc = sys.exc_info()[1]
             if exc.errno == errno.ENOENT:
@@ -768,6 +778,13 @@ class PidLockFile(object):
             raise LockError('%s: lock has been hijacked' % self.file_name)
         self._lock_count = 1
         return pid
+
+class _DummyFile(object):
+    def write(*args, **kwds):
+        pass
+    def close(*args, **kwds):
+        pass
+_dummy_file = _DummyFile()
 
 ft_sentinel = object()
 class FileTracker(object):
