@@ -623,18 +623,6 @@ class PidLockFile(object):
                 self._file_obj = os.fdopen(fd, 'w')
                 break
 
-    def is_primary(self):
-        """
-        Return True if this file is my lock and is owned by me.
-
-        Always returns False until seal/acquire has been called or with-block entered.
-        """
-        return (
-                self._file_obj is not None
-                or
-                self.read_pid() == self.my_pid != None and not self.outside_lock
-                )
-
     def break_lock(self):
         """
         Remove the file, thus breaking the lock.
@@ -674,6 +662,18 @@ class PidLockFile(object):
         Return True if the pid file is locking this process.
         """
         return self.read_pid() == os.getpid()
+
+    def is_primary(self):
+        """
+        Return True if this file is my lock and is owned by me.
+
+        Always returns False until seal/acquire has been called or with-block entered.
+        """
+        return (
+                self._file_obj is not None
+                or
+                self.read_pid() == self.my_pid != None and not self.outside_lock
+                )
 
     def is_stale(self, timeout=5):
         """

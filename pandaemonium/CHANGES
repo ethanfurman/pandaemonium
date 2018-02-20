@@ -1,3 +1,19 @@
+0.8.0
+=====
+
+allow lock file to be set by another process
+
+
+BACKWARDS INCOMPATIBLE CHANGES
+------------------------------
+am_i_locking renamed to is_primary
+
+is_locked renamed to is_active (some process is using the file,
+not necessarily us)
+
+is_locked now indicates if the file is locking this process
+
+
 0.7.5
 =====
 
