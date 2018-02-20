@@ -623,11 +623,17 @@ class PidLockFile(object):
                 self._file_obj = os.fdopen(fd, 'w')
                 break
 
-    def am_i_locking(self):
+    def is_primary(self):
         """
-        Return True if this file is my lock.
+        Return True if this file is my lock and is owned by me.
+
+        Always returns False until seal/acquire has been called or with-block entered.
         """
-        return self._file_obj is not None or self.read_pid() == self.my_pid != None
+        return (
+                self._file_obj is not None
+                or
+                self.read_pid() == self.my_pid != None and not self.outside_lock
+                )
 
     def break_lock(self):
         """
@@ -656,12 +662,18 @@ class PidLockFile(object):
             exc = sys.exc_info()[1]
             self._logger.exception('unable to break lock -> %s', str(exc))
 
-    def is_locked(self):
+    def is_active(self):
         """
         Return True if the pid file exists, and is not stale.
         """
         self._logger.debug('checking if locked')
         return os.path.exists(self.file_name) and not self.is_stale()
+
+    def is_locked(self):
+        """
+        Return True if the pid file is locking this process.
+        """
+        return self.read_pid() == os.getpid()
 
     def is_stale(self, timeout=5):
         """
