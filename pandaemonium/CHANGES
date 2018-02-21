@@ -1,3 +1,9 @@
+0.8.1
+=====
+
+allow parent's pid in pid lock file to lock current process
+
+
 0.8.0
 =====
 
