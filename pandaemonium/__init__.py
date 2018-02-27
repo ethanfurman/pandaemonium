@@ -84,7 +84,7 @@ class NullHandler(logging.Handler):
 logger = logging.getLogger('pandaemonium')
 logger.addHandler(NullHandler())
 
-version = 0, 8, 1
+version = 0, 9, 0, 1
 
 STDIN = 0
 STDOUT = 1
@@ -526,10 +526,9 @@ class PidLockFile(object):
     """
     Simple daemon status via a pid file.
     """
-
-    def __init__(self, file_name, timeout=-1, reentrant=False):
+    def __init__(self, file_name, timeout=0, reentrant=False):
         """
-        file_name and timeout to be used for pid file.
+        file_name and timeout to be used for pid file. (timeout is in minutes)
         """
         self._logger = logging.getLogger('pandaemonium.PidLockFile')
         self._logger.debug('creating lock for %s', file_name)
@@ -573,7 +572,7 @@ class PidLockFile(object):
 
     def acquire(self, timeout=None):
         """
-        Create the file, establishing the lock, but do not write the PID.
+        Create the file, establishing the lock, but do not write the PID. (timeout is in minutes)
         """
         self._logger.debug('%s: acquiring lock', self.file_name)
         if self.my_pid is not None:
@@ -598,6 +597,7 @@ class PidLockFile(object):
             self.break_lock()
         if timeout is None:
             timeout = self.timeout
+        timeout *= 60
         end_time = time.time() + timeout
         while True:
             self._logger.debug('trying to create lock')
@@ -611,11 +611,11 @@ class PidLockFile(object):
                 exc = sys.exc_info()[1]
                 if exc.errno != errno.EEXIST:
                     raise LockFailed('Unable to create %r' % self.file_name)
-                elif timeout < 0:
+                elif timeout <= 0:
                     raise AlreadyLocked('%s is already locked' % self.file_name)
-                elif time.time() < end_time:
+                elif time.time() <= end_time:
                     self._logger.debug('lock taken, sleeping')
-                    time.sleep(max(0.1, timeout/10.0))
+                    time.sleep(60)
                 else:
                     # out of attempts
                     raise AlreadyLocked('%s is already locked' % self.file_name)
@@ -675,9 +675,9 @@ class PidLockFile(object):
                 self.read_pid() == self.my_pid != None and not self.outside_lock
                 )
 
-    def is_stale(self, timeout=5):
+    def is_stale(self, timeout=1):
         """
-        Return True if the pid file contains a PID, and no such process exists.
+        Return True if the pid file contains a PID, and no such process exists. (timeout is in minutes)
         """
         if self._file_obj is not None:
             self._logger.debug('%s: our lock, definitely not stale', self.file_name)
@@ -690,7 +690,7 @@ class PidLockFile(object):
             self._logger.debug('%s: not our lock, but not yet sealed', self.file_name)
             # give it a few seconds to seal; if it doesn't
             # consider it abandoned and therefore stale
-            end_time = time.time() + timeout
+            end_time = time.time() + timeout * 60
             while end_time > time.time():
                 time.sleep(1)
                 pid = self.read_pid()

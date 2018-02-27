@@ -86,7 +86,7 @@ class TestPidLockFile(TestCase):
         "file exists and has active PID"
         locker = PidLockFile(self.file_name)
         locker.seal(1)
-        too_late = PidLockFile(self.file_name, timeout=3)
+        too_late = PidLockFile(self.file_name, timeout=1)
         self.assertRaises(AlreadyLocked, too_late.acquire)
         locker.release()
 

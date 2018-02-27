@@ -239,7 +239,7 @@ make = []
 
 data = dict(
     name='pandaemonium',
-    version='0.8.1',
+    version='0.8.2a1',
     license='BSD License',
     description='Framework for writing daemons, with API similar to threading and multiprocessing.',
     long_description=long_desc,
