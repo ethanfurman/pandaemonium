@@ -590,7 +590,7 @@ class PidLockFile(object):
                 self._logger.error('%s: lock already sealed and not reentrant', self.file_name)
                 raise LockNotReentrant('this lock is already sealed and is not reentrant')
             else:
-                self._logger.rror('%s: reentancy requires using the context manager protocol', self.file_name)
+                self._logger.error('%s: reentancy requires using the context manager protocol', self.file_name)
                 raise LockNotReentrant('reentrancy is only supported via the context manager protocol')
         elif self._file_obj is not None:
             # lock has already been acquired but not sealed
