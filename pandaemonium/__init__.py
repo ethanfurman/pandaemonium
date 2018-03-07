@@ -33,6 +33,7 @@ ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
 import atexit
+import datetime
 import errno
 import logging
 import os
@@ -539,11 +540,14 @@ class PidLockFile(object):
         self.reentrant = reentrant
         self._file_obj = None
         self._lock_count = 0
-        # last pid read from file
+        # last data read from file
         self.last_read_pid = None
+        self.last_read_timestamp = None
         # pid used to lock file
         self.my_pid = None
         self.outside_lock = False
+        # timestamp of file/lock creation
+        self.my_timestamp = None
 
     def __enter__(self):
         """
@@ -643,6 +647,8 @@ class PidLockFile(object):
             self._file_obj = None
         self.my_pid = None
         self.last_read_pid = None
+        self.my_timestamp = None
+        self.last_read_timestamp = None
         self._lock_count = 0
         if self.outside_lock:
             self._logger.debug('%s: third-party lock, removing reference, not removing file', self.file_name)
@@ -689,7 +695,9 @@ class PidLockFile(object):
 
     def is_stale(self, timeout=1):
         """
-        Return True if the pid contains a PID, and no such process exists. (timeout is in minutes)
+        Return True if the pid file is empty for 60 seconds, or contains a PID and no such process exists.
+
+        (timeout is in minutes)
         """
         self._logger.debug('%s: checking if stale', self.file_name)
         if self._file_obj is not None:
@@ -727,21 +735,32 @@ class PidLockFile(object):
 
     def read_pid(self):
         "Return PID stored in file, or None"
-        self._logger.debug('%s: reading pid', self.file_name)
+        self._logger.debug('%s: reading pid and timestamp', self.file_name)
         if self._file_obj is not None:
             # we are in between acquiring and sealing the lock
             self._logger.debug('%s: our lock, but not yet sealed', self.file_name)
             self.last_read_pid = None
+            self.last_read_timestamp = None
             return None
+        timestamp = None
         try:
             pid_file = open(self.file_name)
-            pid = pid_file.read()
+            data = pid_file.read()
             pid_file.close()
-            pid = int(pid.split('\n')[0])
+            data = data.split('\n')
+            pid = int(data[0])
         except Exception:
             pid = None
+            data = ''
+        if data[1:]:
+            try:
+                timestamp = datetime.datetime.strptime(data[1], '%Y-%m-%d.%H:%M:%S')
+            except ValueError:
+                pass
         self._logger.debug('%s: stored pid is <%s>', self.file_name, pid)
+        self._logger.debug('%s: stored timestamp is <%s>', self.file_name, timestamp)
         self.last_read_pid = pid
+        self.last_read_timestamp = timestamp
         return pid
 
     def release(self):
@@ -788,7 +807,8 @@ class PidLockFile(object):
         This should only be called after becoming a daemon if using default PID.
         """
         pid = pid if pid is not None else os.getpid()
-        self._logger.info('%s: sealing lock with %s', self.file_name, pid)
+        timestamp = "%s" % datetime.datetime.now().strftime("%Y-%m-%d.%H:%M:%S")
+        self._logger.info('%s: sealing lock with %s and %s', self.file_name, pid, timestamp)
         if self.read_pid() is not None and self.last_read_pid == self.my_pid:
             # already sealed
             if self.reentrant:
@@ -800,7 +820,9 @@ class PidLockFile(object):
         if self._file_obj is None:
             self.acquire()
         self.my_pid = pid
+        self.my_timestamp = timestamp
         self._file_obj.write("%s\n" % pid)
+        self._file_obj.write(self.my_timestamp)
         self._file_obj.close()
         self._file_obj = None
         # double-check our pid is in the file
