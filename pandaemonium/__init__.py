@@ -585,17 +585,17 @@ class PidLockFile(object):
             if self.my_pid != self.read_pid():
                 # something else stole our lock
                 self._logger.error('%s: lock has been stolen (possibly by %r)', self.file_name, self.last_read_pid)
-                raise LockError('lock has been stolen (possibly by %s)' % self.last_read_pid)
+                raise LockError('lock stolen (by %s?)' % self.last_read_pid)
             elif not self.reentrant:
                 self._logger.error('%s: lock already sealed and not reentrant', self.file_name)
-                raise LockNotReentrant('this lock is already sealed and is not reentrant')
+                raise LockNotReentrant('non-reentrant lock already sealed')
             else:
-                self._logger.error('%s: reentancy requires using the context manager protocol', self.file_name)
-                raise LockNotReentrant('reentrancy is only supported via the context manager protocol')
+                self._logger.error('%s: reentrancy requires using the context manager protocol', self.file_name)
+                raise LockError('reentrant lock used outside context manager protocol')
         elif self._file_obj is not None:
             # lock has already been acquired but not sealed
             self._logger.error('%s: lock already acquired', self.file_name)
-            raise LockError('lock is already acquired, just not sealed')
+            raise LockError('lock already acquired')
         elif self.read_pid() in (os.getpid(), os.getppid()):
             # third-party lock
             self._logger.debug('%s: third-party lock detected', self.file_name)
@@ -782,7 +782,7 @@ class PidLockFile(object):
                 # yes -- but only once?
                 if self._lock_count > 1:
                     self._logger.error('%s: reentrant lock must use context manager protocol', self.file_name)
-                    raise LockError('%s: cannot use release() with reentrant locks' % self.file_name)
+                    raise LockError('%s: reentrant lock used outside context manager protocol' % self.file_name)
                 self.break_lock()
                 return
 
@@ -813,10 +813,10 @@ class PidLockFile(object):
             # already sealed
             if self.reentrant:
                 self._logger.error('%s: reentrant lock must use context manager protocol', self.file_name)
-                raise LockError('reentrancy is only supported via the context manager protocol')
+                raise LockError('%s: reentrant lock used outside context manager protocol')
             else:
                 self._logger.error('%s: lock already sealed and not reentrant', self.file_name)
-                raise LockError('this lock is already sealed and is not reentrant')
+                raise LockNotReentrant('non-reentrant lock already sealed')
         if self._file_obj is None:
             self.acquire()
         self.my_pid = pid
