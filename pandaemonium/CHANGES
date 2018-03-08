@@ -4,6 +4,7 @@
 BACKWARDS INCOMPATIBLE CHANGES
 ------------------------------
 PidLockFile timeout is now minutes (used to be seconds)
+PidLockFile now stores time stamp as second line in pid file
 
 
 0.8.1
