@@ -247,7 +247,7 @@ data = dict(
     package_data={'pandaemonium': ['CHANGES', 'LICENSE']},
     author='Ethan Furman',
     author_email='ethan@stoneleaf.us',
-    url="https://bitbucket.org/stoneleaf/pandaemonium",
+    url="https://github.com/ethanfurman/pandaemonium",
     classifiers=[
         'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
