@@ -124,9 +124,9 @@ received from the daemon and then quits.
 Daemon
 ======
 
-`Daemon(target=None, args=None, kwargs=None, working_directory='/', umask=0,
-prevent_core=True, process_ids=None, inherit_files=None,
-signal_map=None, stdin=None, stdout=None, stderr=None)`
+    Daemon(target=None, args=None, kwargs=None, working_directory='/', umask=0,
+           prevent_core=True, process_ids=None, inherit_files=None,
+           signal_map=None, stdin=None, stdout=None, stderr=None)
 
 - *target*: function to call when daemonized
 
@@ -224,7 +224,7 @@ make = []
 
 data = dict(
     name='pandaemonium',
-    version='0.9.1',
+    version='0.9.2a1',
     license='BSD License',
     description='Framework for writing daemons, with API similar to threading and multiprocessing.',
     long_description=long_desc,
