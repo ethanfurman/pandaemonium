@@ -48,7 +48,7 @@ or:
 
     md = MyDaemon().start()
 
-The sequence of events that takes place when `start()` is called (adapted from
+The sequence of events that takes place when ``start()`` is called (adapted from
 The Linux Programming Interface by Michael Kerrisk) is:
 
   - detach from the current process, creating a new session
@@ -61,8 +61,8 @@ The Linux Programming Interface by Michael Kerrisk) is:
   - close inherited file handles
   - redirect stdin/stdout/stderr
 
-If any exceptions occur or if any feedback is generated during the `start`
-process it will be available as the `error` and `output` attributes of the
+If any exceptions occur or if any feedback is generated during the ``start``
+process it will be available as the ``error`` and ``output`` attributes of the
 daemon instance, where the parent process can analyze, print, etc before
 quiting.
 
@@ -79,7 +79,7 @@ If more control is needed than what is provided by the parameters of Daemon
 then one has a couple options available:
 
   - if certain set up / initialization steps need to happen somewhere in the
-    `start()` sequence, such as after setting the umask and before changing
+    ``start()`` sequence, such as after setting the umask and before changing
     the working directory::
 
         Daemon.stage4()
@@ -89,7 +89,7 @@ then one has a couple options available:
         # stages 5-9 have now been completed, and run() called
 
   - one can also override any of the stages in a subclass (make sure and
-    decorate with `check_stage`:
+    decorate with ``check_stage``:
 
         class MyDaemon(Daemon):
             def run(self, ip):
@@ -118,7 +118,7 @@ then one has a couple options available:
         run_main_program()
 
 If one's desire is to start the daemon and automatically have any output
-printed to screen, one can use `daemon.report()` which prints whatever was
+printed to screen, one can use ``daemon.report()`` which prints whatever was
 received from the daemon and then quits.
 
 
@@ -139,9 +139,9 @@ Daemon
         keyword args to provide to target
 
     detach
-        `None` (default) means figure it out, `True` means yes, `False` means no.
-        Figuring it out means if the parent process is `init`, or a `super
-        server`, do not detach
+        ``None`` (default) means figure it out, ``True`` means yes, ``False`` means no.
+        Figuring it out means if the parent process is ``init``, or a ``super
+        server``, do not detach
 
     working_directory
         directory to change to (relative to chroot, if one is in effect)
@@ -156,7 +156,7 @@ Daemon
         tuple of (uid, gid) to switch process to (use (None, None) to disable)
 
     pid_file
-        `None` (default), or
+        ``None`` (default), or
         a PidLockFile instance, or
         the string of where to create a PidLockFile
 
@@ -168,7 +168,7 @@ Daemon
 
     stdin / stdout / stderr
         streams to map the standard streams to
-        default is `None` which is mapped to ``os.devnull``
+        default is ``None`` which is mapped to ``os.devnull``
 
 
 ``Daemon.run()``
@@ -177,8 +177,8 @@ Daemon
 
     You may override this method in a subclass.  The standard ``run``
     method invokes the callable object passed to the object's constructor as
-    the `target` argument, if any, with sequential and keyword arguments taken
-    from the `args` and `kwargs` arguments, respectively.
+    the ``target`` argument, if any, with sequential and keyword arguments taken
+    from the ``args`` and ``kwargs`` arguments, respectively.
 
 ``Daemon.start()``
 ''''''''''''''''''
@@ -213,7 +213,7 @@ PidLockFile
 
 ``PidLockFile.acquire(timeout=None)``
 ''''''''''''''''''''''''''''''''''''''
-    attempt to capture the lock file; if timeout is `None` use the time out
+    attempt to capture the lock file; if timeout is ``None`` use the time out
     specified when PidLockFile was created.
 
 ``PidLockFile.seal()``
